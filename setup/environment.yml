@@ -1,0 +1,11 @@
+numpy
+scipy
+matplotlib
+astropy
+scikit-learn
+ipython
+requests
+pyyaml
+tqdm
+pystan
+h5py
