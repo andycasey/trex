@@ -1,0 +1,64 @@
+data_path: data/calibration-sample.fits
+model_path: nlnmm.stan
+results_path: results/calibration.h5
+
+multiprocessing: true
+check_finite: false
+suppress_stan_output: true
+random_seed: 0
+number_of_gaussian_process_sources: 1000
+number_of_science_sources: 10000
+number_of_probability_draws: 100
+
+models:
+  ast:
+    kdtree_label_names: [bp_rp, absolute_g_mag, phot_g_mean_mag]
+    kdtree_maximum_points: 1024
+    kdtree_maximum_radius: [0.25, 2.5, 1.5]
+    kdtree_minimum_points: 128
+    kdtree_minimum_radius: [0.1, 0.5, 0.5]
+    kdtree_relative_scales: [0.05, 0.5, 0.25]
+    predictor_label_name: ruwe
+    bounds:
+        theta: [0.5, 1.0]
+        mu_single: [0.5, 5]
+        sigma_single: [0.05, 1]
+        sigma_multiple: [0.2, 1.6]
+    tol_sum_sigma: 10
+    tol_proximity: 0.01
+  rv:
+    kdtree_label_names: [bp_rp, absolute_rp_mag, phot_rp_mean_mag]
+    kdtree_maximum_points: 1024
+    kdtree_maximum_radius: [0.25, 2.5, 1.5]
+    kdtree_minimum_points: 128
+    kdtree_minimum_radius: [0.1, 0.5, 0.5]
+    kdtree_relative_scales: [0.05, 0.5, 0.25]
+    predictor_label_name: rv_jitter
+    bounds:
+        theta: [0.5, 1.0]
+        mu_single: [0.5, 15]
+        sigma_single: [0.05, 10]
+        sigma_multiple: [0.2, 1.6]
+    tol_sum_sigma: 10
+    tol_proximity: 0.01
+
+
+gaia_archive_adql_calibration_query: >
+  SELECT *,
+         phot_g_mean_mag + 5 * log10(parallax/100) 
+            AS absolute_g_mag,
+         phot_bp_mean_mag + 5 * log10(parallax/100) 
+            AS absolute_bp_mag,
+         phot_rp_mean_mag + 5 * log10(parallax/100) 
+            AS absolute_rp_mag,
+         sqrt(astrometric_chi2_al/(astrometric_n_good_obs_al - 5)) 
+            AS ruwe,
+         sqrt(rv_nb_transits * 3.14/2 * power(radial_velocity_error, 2)) 
+            AS rv_jitter
+  FROM  gaiadr2.gaia_source
+  WHERE duplicated_source = 'false'
+    AND radial_velocity > -9999
+    AND bp_rp > -9999
+    AND phot_g_mean_mag < 13
+    AND parallax > 0
+    AND parallax_over_error > 5
