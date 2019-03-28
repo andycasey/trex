@@ -12,7 +12,7 @@ data {
 }
 
 parameters {
-    real<lower=bound_theta[1], upper=bound_theta[2]> theta; // the mixing parameter
+    real<lower=fmax(0.0, bound_theta[1]), upper=fmin(1.0, bound_theta[2])> theta; // the mixing parameter
     real<lower=bound_mu_single[1], upper=bound_mu_single[2]> mu_single; // single star distribution mean
     real<lower=bound_sigma_single[1], upper=bound_sigma_single[2]> sigma_single; // single star distribution sigma
     real<lower=bound_sigma_multiple[1], upper=bound_sigma_multiple[2]> sigma_multiple; // multiplcity log-normal distribution sigma

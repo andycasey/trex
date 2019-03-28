@@ -90,13 +90,14 @@ if __name__ == "__main__":
     S = config.get("number_of_science_sources", -1)
     if S < 0:
         S = N
-        science_indices = np.ones(N, dtype=bool)
+        science_indices = np.arange(N)
 
     else:
         science_indices = np.random.choice(N, S, replace=False)
 
     model_results = dict()
     for model_name, model_config in config["models"].items():
+        if model_name in model_results or model_name == "rv_uncorrected": continue
 
         logger.info(f"Running model '{model_name}' with config:\n{utils.repr_dict(model_config)}")
 
@@ -128,12 +129,16 @@ if __name__ == "__main__":
             maximum_points=model_config["kdtree_maximum_points"],
             minimum_density=model_config.get("kdtree_minimum_density", None))
 
-        
         # Optimize the non-parametric model for those sources.
         results = np.zeros((M, 5))
         done = np.zeros(M, dtype=bool)
 
         def optimize_mixture_model(index, inits=None, scalar=5, debug=False):
+
+            suppress = config.get("suppress_stan_output", True)
+            #print(debug, suppress)
+            #if debug:
+            #    suppress = False
 
             # Select indices and get data.
             d, nearby_idx, meta = npm.query_around_point(kdt, X[index], **kdt_kwds)
@@ -170,7 +175,7 @@ if __name__ == "__main__":
 
                 # Do optimization.
                 # TODO: Suppressing output is always dangerous.
-                with stan.suppress_output(config.get("suppress_stan_output", True)) as sm:
+                with stan.suppress_output(suppress) as sm:
                     try:
                         p_opt = model.optimizing(**opt_kwds)
 
@@ -211,12 +216,20 @@ if __name__ == "__main__":
                 meta["init_idx"] = idx
 
                 if debug:
-                    import matplotlib.pyplot as plt
+
+                    theta, mu_single, sigma_single, mu_multiple, sigma_multiple = np.hstack(p_opt.values())
+
                     fig, ax = plt.subplots()
-                    ax.hist(y)
+                    ax.hist(y, bins=50)
+                    ax.axvline(Y[index])
 
+                    xi = np.linspace(0, 20, 1000)
 
-                    raise a
+                    y_s = len(y) * utils.norm_pdf(xi, mu_single, sigma_single, theta)
+                    y_m = len(y) * utils.lognorm_pdf(xi, mu_multiple, sigma_multiple, theta)
+
+                    ax.plot(xi, y_s, c="tab:blue")
+                    ax.plot(xi, y_m, c="tab:red")
 
                 return (index, p_opt, meta)
 
@@ -230,7 +243,7 @@ if __name__ == "__main__":
                 for j, index in enumerate(sp_indices):
                     if done[j]: continue
 
-                    _, result, meta = optimize_mixture_model(index)
+                    _, result, meta = optimize_mixture_model(index, **kwargs)
 
                     pbar.update()
 
@@ -337,9 +350,6 @@ if __name__ == "__main__":
         # Bad results include:
         # - Things that are so clearly discrepant in every parameter.
         # - Things that are on the edge of the boundaries of parameter space.
-        sigma = np.abs(results - np.median(results, axis=0)) \
-              / np.std(results, axis=0)
-        sigma = np.sum(sigma, axis=1)
 
         tol_sigma = model_config["tol_sum_sigma"]
         tol_proximity = model_config["tol_proximity"]
@@ -351,35 +361,59 @@ if __name__ == "__main__":
 
         lower_bounds = np.array([model_config["bounds"].get(k, [-np.inf])[0] for k in parameter_names])
         upper_bounds = np.array([model_config["bounds"].get(k, [+np.inf])[-1] for k in parameter_names])
-        
-        not_ok_bound = np.any(
-            (np.abs(results - lower_bounds) <= tol_proximity) \
-          + (np.abs(results - upper_bounds) <= tol_proximity), axis=1)
 
-        not_ok_sigma = sigma > tol_sigma
+        for iteration in range(3): # MAGIC HACK
 
-        not_ok = not_ok_bound + not_ok_sigma
+            sigma = np.abs(results - np.median(results, axis=0)) \
+                  / np.std(results, axis=0)
+            sigma = np.sum(sigma, axis=1)
+
+            
+            # Only care about indices 1 and 2
+            lower_bounds[3:] = -np.inf
+            upper_bounds[3:] = +np.inf
+
+            not_ok_bound = np.any(
+                (np.abs(results - lower_bounds) <= tol_proximity) \
+              + (np.abs(results - upper_bounds) <= tol_proximity), axis=1)
+
+            not_ok_sigma = sigma > tol_sigma
+
+            not_ok = not_ok_bound + not_ok_sigma
+
+            done[not_ok] = False
+            sp_swarm(*indices[not_ok], 
+                     inits=[np.median(results[~not_ok], axis=0), "random"],
+                     debug=False)
+
+            print(f"There were {sum(not_ok_sigma)} results discarded for being outliers")
+            print(f"There were {sum(not_ok_bound)} results discarded for being close to the edge")
+            print(f"There were {sum(not_ok)} results discarded in total")
+
 
         import matplotlib.pyplot as plt
         for i in range(5):
-            fig, ax = plt.subplots(1, 1)
-            ax.set_title(i)
-            scat = ax.scatter(X[indices, 0], X[indices, 1], c=results.T[i], s=1)
+            fig, axes = plt.subplots(1, 2)
+            ax = axes[0]
+            ax.set_title(f"{model_name} {i}")
 
-            ax.scatter(X[indices, 0][not_ok], X[indices, 1][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1)
-            ax.set_ylim(ax.get_ylim()[::-1])
+            kwds = dict(vmin=lower_bounds[i] if np.isfinite(lower_bounds[i]) else 0.5,
+                        vmax=upper_bounds[i] if np.isfinite(upper_bounds[i]) else 1.5)
+
+            scat = ax.scatter(X[indices, 0], X[indices, 1], c=results.T[i], s=1,
+                **kwds)
+
+            ax.scatter(X[indices, 0][not_ok], X[indices, 1][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
+                **kwds)
+
+            axes[1].scatter(X[indices, 0], X[indices, 2], c=results.T[i], s=1, **kwds)
+            axes[1].scatter(X[indices, 0][not_ok], X[indices, 2][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
+                **kwds)
+
+            for ax in axes:
+                ax.set_ylim(ax.get_ylim()[::-1])
             cbar = plt.colorbar(scat)
 
-
-        rand_index = np.random.choice(indices[not_ok])
-        _, result, meta = optimize_mixture_model(rand_index, debug=True)
-
-
-        raise a
-
-        print(f"There were {sum(not_ok_sigma)} results discarded for being outliers")
-        print(f"There were {sum(not_ok_bound)} results discarded for being close to the edge")
-        print(f"There were {sum(not_ok)} results discarded in total")
 
         model_indices = indices[~not_ok]
         results = results[~not_ok]
@@ -438,7 +472,7 @@ if __name__ == "__main__":
 
             logger.info(f"Predicting {model_name} {index}")
 
-            with tqdm.tqdm(total=X.shape[0]) as pb:
+            with tqdm.tqdm(total=S) as pb:
                 for b in range(B):
                     s, e = (b * gp_block_size, (b + 1)*gp_block_size)
                     sb = science_indices[s:1+e]
@@ -475,10 +509,32 @@ if __name__ == "__main__":
 
         model_results[model_name] = [model_indices, results, gp_parameters, gp_predictions]
 
-        # Save predictions so far.
+        # Save predictions so far?
+        """
         logger.info(f"Saved progress to {results_path}")
         with open(results_path, "wb") as fp:
             pickle.dump(dict(config=config, models=model_results), fp)
+        """
 
-    # Save the predictions, and the GP hyperparameters.
-    save_dict = dict(config=config, models=model_results)
+    with h5.File(results_path, "w") as h:
+
+        group = h.create_group("models")
+
+        for model_name in results["models"].keys():
+
+            sub_group = group.create_group(model_name)
+
+            dataset_names = (
+                "data_indices", 
+                "mixture_model_results", 
+                "gp_parameters", 
+                "gp_predictions"
+            )
+            for i, dataset_name in enumerate(dataset_names):
+                d = sub_group.create_dataset(dataset_name, 
+                                             data=results["models"][model_name][i])
+    
+    # Calculate PDFs and estimates, etc.
+
+    with open(f"{results_path}.meta", "w") as fp:
+        fp.write(yaml.dump(config))

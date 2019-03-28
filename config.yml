@@ -1,4 +1,4 @@
-data_path: data/calibration-sample.fits
+data_path: data/calibration-sample-2.fits
 model_path: nlnmm.stan
 results_path: results/calibration.h5
 
@@ -6,8 +6,8 @@ multiprocessing: true
 check_finite: false
 suppress_stan_output: true
 random_seed: 0
-number_of_gaussian_process_sources: 1000
-number_of_science_sources: 10000
+number_of_gaussian_process_sources: 10000
+number_of_science_sources: 100000
 number_of_probability_draws: 100
 
 models:
@@ -20,11 +20,11 @@ models:
     kdtree_relative_scales: [0.05, 0.5, 0.25]
     predictor_label_name: ruwe
     bounds:
-        theta: [0.5, 1.0]
+        theta: [0.5, 1.1]
         mu_single: [0.5, 5]
-        sigma_single: [0.05, 1]
-        sigma_multiple: [0.2, 1.6]
-    tol_sum_sigma: 10
+        sigma_single: [0.025, 1]
+        sigma_multiple: [0.1, 2]
+    tol_sum_sigma: 25
     tol_proximity: 0.01
   rv:
     kdtree_label_names: [bp_rp, absolute_rp_mag, phot_rp_mean_mag]
@@ -35,13 +35,27 @@ models:
     kdtree_relative_scales: [0.05, 0.5, 0.25]
     predictor_label_name: rv_jitter
     bounds:
-        theta: [0.5, 1.0]
+        theta: [0.5, 1.1]
         mu_single: [0.5, 15]
-        sigma_single: [0.05, 10]
+        sigma_single: [0.025, 10]
         sigma_multiple: [0.2, 1.6]
-    tol_sum_sigma: 10
+    tol_sum_sigma: 25
     tol_proximity: 0.01
-
+  rv_uncorrected:
+    kdtree_label_names: [bp_rp, absolute_rp_mag, phot_rp_mean_mag]
+    kdtree_maximum_points: 1024
+    kdtree_maximum_radius: [0.25, 2.5, 1.5]
+    kdtree_minimum_points: 128
+    kdtree_minimum_radius: [0.1, 0.5, 0.5]
+    kdtree_relative_scales: [0.05, 0.5, 0.25]
+    predictor_label_name: radial_velocity_error
+    bounds:
+        theta: [0.5, 1.1]
+        mu_single: [0.5, 15]
+        sigma_single: [0.025, 10]
+        sigma_multiple: [0.2, 1.6]
+    tol_sum_sigma: 25
+    tol_proximity: 0.01
 
 gaia_archive_adql_calibration_query: >
   SELECT *,
