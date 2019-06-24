@@ -10,10 +10,12 @@ import pickle
 import sys
 import tqdm
 import yaml
+from hashlib import md5
 from time import (sleep, time)
 from astropy.io import fits
 from scipy import optimize as op
 from scipy.special import logsumexp
+from shutil import copyfile
 
 import george
 
@@ -42,19 +44,31 @@ if __name__ == "__main__":
     with open(config_path, "r") as fp:
         config = yaml.load(fp, Loader=yaml.Loader)
 
+    pwd = os.path.dirname(config_path)
+
     random_seed = int(config["random_seed"])
     np.random.seed(random_seed)
 
     logger.info(f"Config path: {config_path} with seed {random_seed}")
 
+    # Generate a unique hash.
+    unique_hash = md5((f"{config}").encode("utf-8")).hexdigest()[:5]
+    logger.info(f"Unique hash: {unique_hash}")
+
     # Check results path now so we don't die later.
-    results_path = config["results_path"]
-    directory_path = os.path.dirname(os.path.realpath(results_path))
-    os.makedirs(directory_path, exist_ok=True)
+    results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
+    results_dir = os.path.dirname(os.path.realpath(results_path))
+    os.makedirs(results_dir, exist_ok=True)
+
+    # Save a copy of the config file to the results path.
+    copyfile(config_path, os.path.join(results_dir, os.path.basename(config_path)))
+    logger.info(f"Copied config file to {results_dir}/")
 
 
     # Load data.
-    data = fits.open(config["data_path"])[1].data
+    data_path = os.path.join(pwd, config["data_path"])
+    data = h5.File(data_path, "r")
+
 
     # Get a list of all relevant label names
     all_label_names = []
@@ -64,11 +78,30 @@ if __name__ == "__main__":
 
     all_label_names = list(np.unique(all_label_names))     
 
-    if config.get("check_finite", True) \
-    and not np.all([np.isfinite(data[ln]) for ln in all_label_names]):
-        raise ValueError("all predictor label names must be finite")
+    # Require finite entries for all predictors across all models.
+    sources = data["sources"]
+    M = config["number_of_sources_for_gaussian_process"]
+    N = sources["source_id"].size
 
-    model = stan.load_stan_model(config["model_path"], verbose=False)
+    data_mask = np.ones(N, dtype=bool)
+        
+    if config.get("check_finite", True):
+
+        # Only use finite values.
+        for ln in all_label_names:
+            data_mask *= np.isfinite(sources[ln][()])
+        N = sum(data_mask)
+
+        npm_indices = np.random.choice(N, M, replace=False)
+        
+    else:
+        logger.warn("Not checking for finite predictors across all models!")
+        npm_indices = np.random.choice(N, M, replace=False)
+
+
+    # Load model and check optimization keywords
+    model_path = os.path.join(pwd, config["model_path"])
+    model = stan.load_stan_model(model_path, verbose=False)
 
     # Make sure that some entries have the right type.
     default_opt_kwds = config.get("optimisation_kwds", {})
@@ -83,21 +116,10 @@ if __name__ == "__main__":
                           bound_sigma_single=[0.05, 10],
                           bound_sigma_multiple=[0.2, 1.6])
 
-    N = len(data)
-    M = config["number_of_gaussian_process_sources"]
-    indices = np.random.choice(N, M, replace=False)
-
-    S = config.get("number_of_science_sources", -1)
-    if S < 0:
-        S = N
-        science_indices = np.arange(N)
-
-    else:
-        science_indices = np.random.choice(N, S, replace=False)
 
     model_results = dict()
     for model_name, model_config in config["models"].items():
-        if model_name in model_results or model_name == "rv_uncorrected": continue
+        if model_name in model_results: continue
 
         logger.info(f"Running model '{model_name}' with config:\n{utils.repr_dict(model_config)}")
 
@@ -106,33 +128,30 @@ if __name__ == "__main__":
             bounds[f"bound_{k}"] = [lower, upper]
 
         # Set up a KD-tree.
-        dtype = '<f4'
-        lns = list(model_config["kdtree_label_names"]) \
-            + [model_config["predictor_label_name"]]
+        lns = list(model_config["kdtree_label_names"]) + [model_config["predictor_label_name"]]
 
-        Z = np.array(data.view(np.recarray)[lns]\
-                         .astype([(ln, dtype) for ln in lns])\
-                         .view(dtype).reshape((-1, len(lns))))
-        X, Y = Z[:, :-1], Z[:, -1]
+        Z = np.vstack([sources[ln][()] for ln in lns]).T
+        X, Y = Z[data_mask, :-1], Z[data_mask, -1]
 
         N, D = X.shape
 
-        logger.info(f"Building K-D tree...")
+
+        logger.info(f"Building K-D tree with N = {N}, D = {D}...")
         kdt, scales, offsets = npm.build_kdtree(X, 
                 relative_scales=model_config["kdtree_relative_scales"])
 
         kdt_kwds = dict(offsets=offsets, scales=scales, full_output=True)
         kdt_kwds.update(
             minimum_radius=model_config["kdtree_minimum_radius"],
-            maximum_radius=model_config.get("kdtree_maximum_radius", None),
+            maximum_radius=model_config["kdtree_maximum_radius"],
             minimum_points=model_config["kdtree_minimum_points"],
-            maximum_points=model_config["kdtree_maximum_points"],
-            minimum_density=model_config.get("kdtree_minimum_density", None))
+            maximum_points=model_config["kdtree_maximum_points"])
 
         # Optimize the non-parametric model for those sources.
         results = np.zeros((M, 5))
         done = np.zeros(M, dtype=bool)
 
+        # TODO: put scalar to the config file.
         def optimize_mixture_model(index, inits=None, scalar=5, debug=False):
 
             suppress = config.get("suppress_stan_output", True)
@@ -299,7 +318,7 @@ if __name__ == "__main__":
 
 
         if not config.get("multiprocessing", False):
-            sp_swarm(*indices)
+            sp_swarm(*npm_indices)
 
         else:
             P = mp.cpu_count()
@@ -316,7 +335,7 @@ if __name__ == "__main__":
 
 
                 logger.info("Dumping everything into the queue!")
-                for j, index in enumerate(indices):
+                for j, index in enumerate(npm_indices):
                     in_queue.put((j, index, ))
 
                 j = []
@@ -351,6 +370,7 @@ if __name__ == "__main__":
         # - Things that are so clearly discrepant in every parameter.
         # - Things that are on the edge of the boundaries of parameter space.
 
+
         tol_sigma = model_config["tol_sum_sigma"]
         tol_proximity = model_config["tol_proximity"]
 
@@ -382,7 +402,7 @@ if __name__ == "__main__":
             not_ok = not_ok_bound + not_ok_sigma
 
             done[not_ok] = False
-            sp_swarm(*indices[not_ok], 
+            sp_swarm(*npm_indices[not_ok], 
                      inits=[np.median(results[~not_ok], axis=0), "random"],
                      debug=False)
 
@@ -400,14 +420,14 @@ if __name__ == "__main__":
             kwds = dict(vmin=lower_bounds[i] if np.isfinite(lower_bounds[i]) else 0.5,
                         vmax=upper_bounds[i] if np.isfinite(upper_bounds[i]) else 1.5)
 
-            scat = ax.scatter(X[indices, 0], X[indices, 1], c=results.T[i], s=1,
+            scat = ax.scatter(X[npm_indices, 0], X[npm_indices, 1], c=results.T[i], s=1,
                 **kwds)
 
-            ax.scatter(X[indices, 0][not_ok], X[indices, 1][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
+            ax.scatter(X[npm_indices, 0][not_ok], X[npm_indices, 1][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
                 **kwds)
 
-            axes[1].scatter(X[indices, 0], X[indices, 2], c=results.T[i], s=1, **kwds)
-            axes[1].scatter(X[indices, 0][not_ok], X[indices, 2][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
+            axes[1].scatter(X[npm_indices, 0], X[npm_indices, 2], c=results.T[i], s=1, **kwds)
+            axes[1].scatter(X[npm_indices, 0][not_ok], X[npm_indices, 2][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
                 **kwds)
 
             for ax in axes:
@@ -415,7 +435,10 @@ if __name__ == "__main__":
             cbar = plt.colorbar(scat)
 
 
-        model_indices = indices[~not_ok]
+        raise a
+
+
+        model_indices = npm_indices[~not_ok]
         results = results[~not_ok]
 
         # Run the gaussian process on the single star estimates.
