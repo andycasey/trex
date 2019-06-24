@@ -57,7 +57,7 @@ models:
 gp_initial_guesses:
   ast:
     mu_single: [2.11952289, -8.11510261, -1.76705322,  0.66798723, -1.41052901]
-  #  sigma_single: 
+    sigma_single: [ 0.25855645, -8.2251049 , -1.45272654,  1.18873635, -2.33497652]
   # mu_multiple:
   # sigma_multiple:
   #rv:
