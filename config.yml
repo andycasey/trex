@@ -13,13 +13,14 @@ number_of_probability_draws: 100
 
 plot_mixture_model_figures: false
 ignore_keywords_when_creating_hash:
-    - ignore_keywords_when_creating_hash
-    - plot_mixture_model_figures
+  - ignore_keywords_when_creating_hash
+  - plot_mixture_model_figures
+  - gp_initial_guesses
 
 data_bounds:
-    bp_rp: [-0.5, 5]
-    absolute_g_mag: [-15, 12]
-    phot_g_mean_mag: [3, 15]
+  bp_rp: [-0.5, 5]
+  absolute_g_mag: [-15, 12]
+  phot_g_mean_mag: [3, 15]
 
 models:
   ast:
@@ -31,10 +32,10 @@ models:
     kdtree_relative_scales: [0.05, 0.5, 0.5]
     predictor_label_name: ruwe
     bounds:
-        theta: [0.5, 1.1]
-        mu_single: [0.5, 5]
-        sigma_single: [0.025, 1]
-        sigma_multiple: [0.1, 2]
+      theta: [0.5, 1.1]
+      mu_single: [0.5, 5]
+      sigma_single: [0.025, 1]
+      sigma_multiple: [0.1, 2]
     tol_sum_sigma: 10
     tol_proximity: 0.01
   rv:
@@ -46,12 +47,24 @@ models:
     kdtree_relative_scales: [0.05, 0.5, 0.5]
     predictor_label_name: rv_jitter
     bounds:
-        theta: [0.5, 1.1]
-        mu_single: [0.05, 5]
-        sigma_single: [0.025, 5]
-        sigma_multiple: [0.2, 1.6]
+      theta: [0.5, 1.1]
+      mu_single: [0.05, 5]
+      sigma_single: [0.025, 5]
+      sigma_multiple: [0.2, 1.6]
     tol_sum_sigma: 10
     tol_proximity: 0.01
+
+gp_initial_guesses:
+  ast:
+    mu_single: [2.11952289, -8.11510261, -1.76705322,  0.66798723, -1.41052901]
+  #  sigma_single: 
+  # mu_multiple:
+  # sigma_multiple:
+  #rv:
+  #  mu_single:
+  #  sigma_single:
+  #  mu_multiple:
+  #  sigma_multiple:
 
 
 

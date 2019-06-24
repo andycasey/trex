@@ -27,14 +27,6 @@ if not logger.handlers:
 
 logger.setLevel(logging.INFO)
 
-# Take the mixture model outputs and fit a gaussian process model
-
-
-
-# Save the hyperparameters of the gaussian process
-
-
-
 
 if __name__ == "__main__":
 
@@ -65,9 +57,6 @@ if __name__ == "__main__":
     data = h5.File(data_path, "r")
     sources = data["sources"]
     
-    
-
-
 
     # Load in the results path.
     results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
@@ -85,6 +74,8 @@ if __name__ == "__main__":
 
     for model_name, model_config in config["models"].items():
 
+        logger.info(f"Running {model_name} model")
+
         lns = list(model_config["kdtree_label_names"]) 
 
         for parameter_name in ("mu_single", "sigma_single", "mu_multiple", "sigma_multiple"):
@@ -99,17 +90,6 @@ if __name__ == "__main__":
 
             # TODO: Only include those that are 'is_ok'?
             # TODO: Only fit a subset?
-
-            # TODO: Allow initial guesses for the GP hyper-parameters in the config.yml?
-
-            """
-            X = X[is_ok]
-            Y = Y[is_ok]
-
-            P = np.random.choice(Y.size, 1000, replace=False)
-            X = X[P]
-            Y = Y[P]
-            """
 
             metric = np.var(X, axis=0)
             kernel = george.kernels.ExpSquaredKernel(metric=metric, ndim=metric.size)
@@ -133,10 +113,24 @@ if __name__ == "__main__":
             
             p0 = gp.get_parameter_vector()
 
+            # Check for an initial guess.
+            try:
+                p0 = np.array(config["gp_initial_guesses"][model_name][parameter_name])
+
+            except KeyError:
+                p0 = gp.get_parameter_vector()
+                logger.warn(f"Using default initial guess: {p0}")
+
+            else:
+                if p0.size != gp.get_parameter_vector().size:
+                    logger.warn("Using default initial guess because guess in config file did not match expectations!")
+                    p0 = gp.get_parameter_vector()
+                else:
+                    logger.info(f"Using initial guess from config file: {p0}")
+
             t_init = time()
             result = op.minimize(nll, p0, jac=grad_nll, method="L-BFGS-B")
             t_opt = time() - t_init
-
 
             gp.set_parameter_vector(result.x)
             logger.info("Result: {}".format(result))
@@ -165,9 +159,10 @@ if __name__ == "__main__":
             if not result.success:
                 logger.warn(f"Optimization of GP for parameter {parameter_name} not successful")
 
-            # TODO: Store the X, Y used to make predictions?
+
             # TODO: Store metadata from the optimized result?
 
+            """
             # Plot the GP predictions across the HRD.
             xp = np.vstack([sources[ln][()] for ln in lns]).T[data_indices]
 
@@ -190,7 +185,7 @@ if __name__ == "__main__":
             fig.savefig(f"{figures_dir}/{model_name}-{parameter_name}-gp-predictions-mean.png", dpi=150)
 
             plt.close("all")
-
+            """
 
     # Close results file
     results.close()
