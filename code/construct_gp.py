@@ -79,8 +79,9 @@ if __name__ == "__main__":
         lns = list(model_config["kdtree_label_names"]) 
 
         for parameter_name in ("mu_single", "sigma_single", "mu_multiple", "sigma_multiple"):
+
             # Get the mixture model results.
-            group = results[model_name]["mixture_model"]
+            group = results[f"{model_name}/mixture_model"]
             
             is_ok = group["is_ok"][()]
 
@@ -89,7 +90,6 @@ if __name__ == "__main__":
             Y = group[parameter_name][()]
 
             # TODO: Only include those that are 'is_ok'?
-            # TODO: Only fit a subset?
 
             metric = np.var(X, axis=0)
             kernel = george.kernels.ExpSquaredKernel(metric=metric, ndim=metric.size)
@@ -151,16 +151,16 @@ if __name__ == "__main__":
 
             # Store the name of the kernel
             g.attrs["kernel"] = type(kernel).__name__
+            g.attrs["success"] = result.success
+            g.attrs["message"] = result.message
 
-            # Store the X, Y used to compute the GP.
+            # TODO: Store the X, Y used to compute the GP.
+            # In principle if we aren't taking a subset of X, Y then we don't need to do this!
             g.create_dataset("X", data=X)
             g.create_dataset("Y", data=Y)
 
             if not result.success:
                 logger.warn(f"Optimization of GP for parameter {parameter_name} not successful")
-
-
-            # TODO: Store metadata from the optimized result?
 
             """
             # Plot the GP predictions across the HRD.
