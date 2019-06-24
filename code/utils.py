@@ -55,9 +55,13 @@ def norm_pdf(x, norm_mu, norm_sigma, theta):
     
 
 def lognorm_pdf(x, lognorm_mu, lognorm_sigma, theta):
-    return (1.0 - theta)/(x * lognorm_sigma * np.sqrt(2*np.pi)) \
-           * np.exp(-0.5 * ((np.log(x) - lognorm_mu)/lognorm_sigma)**2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
 
+        pdf = (1.0 - theta)/(x * lognorm_sigma * np.sqrt(2*np.pi)) \
+               * np.exp(-0.5 * ((np.log(x) - lognorm_mu)/lognorm_sigma)**2)
+
+    return pdf
 
 def ln_likelihood(y, theta, s_mu, s_sigma, b_mu, b_sigma):
     
@@ -82,13 +86,15 @@ def ln_likelihood(y, theta, s_mu, s_sigma, b_mu, b_sigma):
     return ll
 
 
-def ln_prior(theta, s_mu, s_sigma, b_mu, b_sigma):
+def ln_prior(theta, s_mu, s_sigma, b_mu, b_sigma, bounds=None):
 
     # Ensure that the *mode* of the log-normal distribution is larger than the
     # mean of the normal distribution
+    """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         min_mu_multiple = np.log(s_mu + s_sigma) + b_sigma**2
+
 
     if not (1 >= theta >= 0) \
     or not (15 >= s_mu >= 0.5) \
@@ -96,14 +102,23 @@ def ln_prior(theta, s_mu, s_sigma, b_mu, b_sigma):
     or not (1.6 >= b_sigma >= 0.20) \
     or np.any(b_mu < min_mu_multiple):
         return -np.inf
+    """
+    if bounds is not None:
+        vals = dict(theta=theta, mu_single=s_mu, sigma_single=s_sigma, mu_multiple=b_mu, sigma_multiple=b_sigma)
+        for k, (lower, upper) in bounds.items():
+            if k.startswith("bound_"):
+                k = "_".join(k.split("_")[1:])
+            if not ((upper >= vals[k]) and (vals[k] >= lower)):
+                return -np.inf
+
 
     # Beta prior on theta.
     return stats.beta.logpdf(theta, 5, 5)
 
 
-def ln_prob(y, L, *params):
+def ln_prob(y, L, *params, bounds=None):
     theta, s_mu, s_sigma, b_mu, b_sigma = _unpack_params(params, L=L)
-    lp = ln_prior(theta, s_mu, s_sigma, b_mu, b_sigma)
+    lp = ln_prior(theta, s_mu, s_sigma, b_mu, b_sigma, bounds=bounds)
     if np.isfinite(lp):
         return lp + ln_likelihood(y, theta, s_mu, s_sigma, b_mu, b_sigma)
     return lp

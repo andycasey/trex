@@ -131,7 +131,7 @@ def plot_binned_statistic(x, y, z, bins=100, function=np.nanmedian,
 
         H[H_count < min_entries_per_bin] = np.nan
 
-    if vmin is None or vmax is None:
+    if (vmin is None or vmax is None) and "norm" not in kwargs:
         vmin_default, med, vmax_default = np.nanpercentile(H, [16, 50, 84])
         if vmin is None:
             vmin = vmin_default

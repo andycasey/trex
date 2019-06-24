@@ -281,16 +281,26 @@ def _get_1d_initialisation_point(y, scalar=5, bounds=None):
             if not (upper >= init[k] >= lower):
                 init[k] = np.mean([upper, lower])
 
+        bounds = bounds.copy()
+
+    else:
+        bounds = dict()
+
     lower_mu_multiple = np.log(init["mu_single"] + scalar * init["sigma_single"]) \
                       + init["sigma_multiple"]**2
 
     init["mu_multiple"] = 1.1 * lower_mu_multiple
 
+    bounds.update(mu_multiple=[lower_mu_multiple, 1000])
+
+
 
     op_kwds = dict(x0=utils._pack_params(**init), args=(y, 1))
 
-    nlp = lambda params, y, L: -utils.ln_prob(y, L, *params)
-    p_opt = op.minimize(nlp, **op_kwds)
+    nlp = lambda params, y, L: -utils.ln_prob(y, L, *params, bounds=bounds)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        p_opt = op.minimize(nlp, **op_kwds)
 
     keys = ("theta", "mu_single", "sigma_single", "mu_multiple", "sigma_multiple")
 
@@ -302,6 +312,8 @@ def _get_1d_initialisation_point(y, scalar=5, bounds=None):
     for init in (init_dict, op_dict):
         if np.isfinite(nlp(utils._pack_params(**init), y, 1)):
             valid_inits.append(init)
+        else:
+            raise a
 
     valid_inits.append("random")
 

@@ -1,5 +1,11 @@
 
-""" Self-calibrate the radial and astrometric jitter in Gaia astrometry. """
+
+"""
+Self-calibrate the radial and astrometric jitter in Gaia.
+
+This script takes in a config file and fits a subset of the jitter using a normal-lognormal mixture
+model and saves the output of the results. Those outputs are then to be used in a gaussian process.
+"""
 
 import h5py as h5
 import logging
@@ -16,10 +22,14 @@ from astropy.io import fits
 from scipy import optimize as op
 from scipy.special import logsumexp
 from shutil import copyfile
+from glob import glob
+
+from matplotlib.colors import LogNorm
 
 import george
 
 import npm_utils as npm
+import mpl_utils as mpl
 import stan_utils as stan
 import utils
 
@@ -52,7 +62,12 @@ if __name__ == "__main__":
     logger.info(f"Config path: {config_path} with seed {random_seed}")
 
     # Generate a unique hash.
-    unique_hash = md5((f"{config}").encode("utf-8")).hexdigest()[:5]
+    config_copy = config.copy()
+    for k in config_copy.pop("ignore_keywords_when_creating_hash", []):
+        if k in config_copy: 
+            del config_copy[k]
+
+    unique_hash = md5((f"{config_copy}").encode("utf-8")).hexdigest()[:5]
     logger.info(f"Unique hash: {unique_hash}")
 
     # Check results path now so we don't die later.
@@ -85,18 +100,32 @@ if __name__ == "__main__":
 
     data_mask = np.ones(N, dtype=bool)
         
-    if config.get("check_finite", True):
+    data_bounds = config.get("data_bounds", None)
+    if data_bounds:
+        for parameter_name, (upper, lower) in data_bounds.items():
+            lower, upper = np.sort([lower, upper])
+            data_mask *= (upper >= sources[parameter_name][()]) \
+                       * (sources[parameter_name][()] >= lower)
 
+            logger.info(f"Restricting to sources with {parameter_name}: [{lower:.1f}, {upper:.1f}]")
+
+
+
+    if config.get("check_finite", True):
         # Only use finite values.
         for ln in all_label_names:
             data_mask *= np.isfinite(sources[ln][()])
-        N = sum(data_mask)
-
-        npm_indices = np.random.choice(N, M, replace=False)
-        
     else:
         logger.warn("Not checking for finite predictors across all models!")
-        npm_indices = np.random.choice(N, M, replace=False)
+        
+    data_indices = np.where(data_mask)[0]
+    npm_indices = np.random.choice(data_indices.size, M, replace=False)
+    
+    # Create results file.
+    with h5.File(results_path, "w") as results:
+        g = results.create_group("indices")
+        g.create_dataset("data_indices", data=data_indices)
+        g.create_dataset("npm_indices", data=npm_indices)
 
 
     # Load model and check optimization keywords
@@ -115,6 +144,14 @@ if __name__ == "__main__":
                           bound_mu_single=[0.5, 15],
                           bound_sigma_single=[0.05, 10],
                           bound_sigma_multiple=[0.2, 1.6])
+
+
+    # Plotting
+    plot_mixture_model_figures = config.get("plot_mixture_model_figures", False)
+    if plot_mixture_model_figures:
+        figures_dir = os.path.join(results_dir, "figures")
+        os.makedirs(figures_dir, exist_ok=True)
+
 
 
     model_results = dict()
@@ -148,8 +185,17 @@ if __name__ == "__main__":
             maximum_points=model_config["kdtree_maximum_points"])
 
         # Optimize the non-parametric model for those sources.
-        results = np.zeros((M, 5))
+        npm_results = np.zeros((M, 5))
         done = np.zeros(M, dtype=bool)
+
+
+        if plot_mixture_model_figures:
+
+            fig, axes = plt.subplots(1, 3, figsize=(12, 3))
+
+            kwds = dict(function="count", bins=250, cmap="Greys", norm=LogNorm())
+            mpl.plot_binned_statistic(X[:, 0], X[:, 1], X[:, 1], ax=axes[0], **kwds)
+            mpl.plot_binned_statistic(X[:, 0], X[:, 2], X[:, 2], ax=axes[1], **kwds)
 
         # TODO: put scalar to the config file.
         def optimize_mixture_model(index, inits=None, scalar=5, debug=False):
@@ -201,11 +247,11 @@ if __name__ == "__main__":
                     except:
                         logger.exception(f"Exception occurred when optimizing index {index}"\
                                           f" from {init_dict}:")
-
                     else:
                         if p_opt is not None:
                             p_opts.append(p_opt)
-                            ln_probs.append(utils.ln_prob(y, 1, *utils._pack_params(**p_opt)))
+                            # TODO : check p_opt is unpcaking correctly.
+                            ln_probs.append(utils.ln_prob(y, 1, *utils._pack_params(**p_opt), bounds=bounds))
 
                 try:
                     p_opt
@@ -234,21 +280,78 @@ if __name__ == "__main__":
                 p_opt = p_opts[idx]
                 meta["init_idx"] = idx
 
+                # Create a three-panel figure showing:
+
+                # (1) a log-density of the HRD + the selected ball points
+                # (2) a log-density of colour vs apparent magnitude + the selected ball points
+                # (3) the jitter + fitted parameters 
+
+                '''
+                def plot_binned_statistic(x, y, z, bins=100, function=np.nanmedian,
+                          xlabel=None, ylabel=None, zlabel=None,
+                          ax=None, colorbar=False, figsize=(8, 8),
+                          vmin=None, vmax=None, min_entries_per_bin=None,
+                          subsample=None, mask=None, **kwargs):
+                '''
+
+                if plot_mixture_model_figures:
+
+                    figure_path = os.path.join(figures_dir, f"{model_name}-{index}.png")
+
+                    
+                    x_upper = 2 * config["models"][model_name]["bounds"]["mu_single"][1]
+                    bins = np.linspace(0, x_upper, 51)
+
+                    xi = np.linspace(0, x_upper, 1000)
+                    y_s = utils.norm_pdf(xi, p_opt["mu_single"], p_opt["sigma_single"], p_opt["theta"])
+                    y_m = utils.lognorm_pdf(xi, p_opt["mu_multiple"], p_opt["sigma_multiple"], p_opt["theta"])
+
+                    items_for_deletion = [
+                        axes[0].scatter(ball.T[0], ball.T[1], c="tab:blue", s=1, zorder=10, alpha=0.5),
+                        axes[1].scatter(ball.T[0], ball.T[2], c="tab:blue", s=1, zorder=10, alpha=0.5),
+
+                        axes[2].hist(y, bins=bins, facecolor="#cccccc", density=True, zorder=-1)[-1],
+                        axes[2].axvline(Y[index], c="#666666"),
+
+                        axes[2].plot(xi, y_s, c="tab:blue"),
+                        axes[2].fill_between(xi, np.zeros_like(y_s), y_s, facecolor="tab:blue", alpha=0.25),
+
+                        axes[2].plot(xi, y_m, c="tab:red"),
+                        axes[2].fill_between(xi, np.zeros_like(y_m), y_m, facecolor="tab:red", alpha=0.25),
+                    ]
+
+
+                    # Ax limits.
+
+                    axes[0].set_xlim(-0.5, 5)
+                    axes[0].set_ylim(10, -15)
+
+                    axes[1].set_xlim(-0.5, 5)
+                    axes[1].set_ylim(15, 3)
+
+                    axes[2].set_xlim(0, x_upper)
+                    axes[2].set_yticks([])
+
+                    fig.tight_layout()
+
+                    fig.savefig(figure_path, dpi=150)
+
+                    for item in items_for_deletion:
+                        try:
+                            item.set_visible(False)
+
+                        except AttributeError:
+                            for _ in item:
+                                if hasattr(_, "set_visible"):
+                                    _.set_visible(False)
+
+
+
+
                 if debug:
 
-                    theta, mu_single, sigma_single, mu_multiple, sigma_multiple = np.hstack(p_opt.values())
-
-                    fig, ax = plt.subplots()
-                    ax.hist(y, bins=50)
-                    ax.axvline(Y[index])
-
-                    xi = np.linspace(0, 20, 1000)
-
-                    y_s = len(y) * utils.norm_pdf(xi, mu_single, sigma_single, theta)
-                    y_m = len(y) * utils.lognorm_pdf(xi, mu_multiple, sigma_multiple, theta)
-
-                    ax.plot(xi, y_s, c="tab:blue")
-                    ax.plot(xi, y_m, c="tab:red")
+                    # Create 
+                    raise a
 
                 return (index, p_opt, meta)
 
@@ -269,7 +372,7 @@ if __name__ == "__main__":
                     done[j] = True
                     
                     if result is not None:
-                        results[j] = utils._pack_params(**result)
+                        npm_results[j] = utils._pack_params(**result)
                          
             return None
 
@@ -321,7 +424,7 @@ if __name__ == "__main__":
             sp_swarm(*npm_indices)
 
         else:
-            P = mp.cpu_count()
+            P = config.get("processes", mp.cpu_count())
 
             with mp.Pool(processes=P) as pool:
 
@@ -352,7 +455,7 @@ if __name__ == "__main__":
                             r = out_queue.get(timeout=30)
 
                         except mp.queues.Empty:
-                            logger.info("No results")
+                            logger.info("No npm_results")
                             break
 
                         else:
@@ -360,7 +463,7 @@ if __name__ == "__main__":
 
                             done[j] = True
                             if result is not None:
-                                results[j] = utils._pack_params(**result)
+                                npm_results[j] = utils._pack_params(**result)
 
                             pbar.update(1)
 
@@ -384,49 +487,65 @@ if __name__ == "__main__":
 
         for iteration in range(3): # MAGIC HACK
 
-            sigma = np.abs(results - np.median(results, axis=0)) \
-                  / np.std(results, axis=0)
+            sigma = np.abs(npm_results - np.median(npm_results, axis=0)) \
+                  / np.std(npm_results, axis=0)
             sigma = np.sum(sigma, axis=1)
-
             
             # Only care about indices 1 and 2
             lower_bounds[3:] = -np.inf
             upper_bounds[3:] = +np.inf
+            lower_bounds[0] = -np.inf
+            upper_bounds[0] = +np.inf
 
             not_ok_bound = np.any(
-                (np.abs(results - lower_bounds) <= tol_proximity) \
-              + (np.abs(results - upper_bounds) <= tol_proximity), axis=1)
+                (np.abs(npm_results - lower_bounds) <= tol_proximity) \
+              + (np.abs(npm_results - upper_bounds) <= tol_proximity), axis=1)
 
             not_ok_sigma = sigma > tol_sigma
 
-            not_ok = not_ok_bound + not_ok_sigma
+            #not_ok = not_ok_bound + not_ok_sigma
+            not_ok = not_ok_sigma
 
             done[not_ok] = False
             sp_swarm(*npm_indices[not_ok], 
-                     inits=[np.median(results[~not_ok], axis=0), "random"],
+                     inits=[np.median(npm_results[~not_ok], axis=0), "random"],
                      debug=False)
 
             print(f"There were {sum(not_ok_sigma)} results discarded for being outliers")
             print(f"There were {sum(not_ok_bound)} results discarded for being close to the edge")
             print(f"There were {sum(not_ok)} results discarded in total")
 
+        # Save results.
+        with h5.File(results_path, "a") as results:
 
+            # ast/mixture_model
+            g = results.create_group(f"{model_name}/mixture_model")
+
+            for i, parameter_name in enumerate(parameter_names):
+                g.create_dataset(parameter_name, data=npm_results.T[i])
+
+            g.create_dataset("is_ok", data=~not_ok)
+
+        logger.info(f"Saved results of {model_name} model to {results_path}")
+
+        # Make some figures
         import matplotlib.pyplot as plt
         for i in range(5):
             fig, axes = plt.subplots(1, 2)
             ax = axes[0]
             ax.set_title(f"{model_name} {i}")
 
-            kwds = dict(vmin=lower_bounds[i] if np.isfinite(lower_bounds[i]) else 0.5,
-                        vmax=upper_bounds[i] if np.isfinite(upper_bounds[i]) else 1.5)
+            kwds = dict(vmin=lower_bounds[i] if np.isfinite(lower_bounds[i]) else None,
+                        vmax=upper_bounds[i] if np.isfinite(upper_bounds[i]) else None)
+            kwds = dict()
 
-            scat = ax.scatter(X[npm_indices, 0], X[npm_indices, 1], c=results.T[i], s=1,
+            scat = ax.scatter(X[npm_indices, 0], X[npm_indices, 1], c=npm_results.T[i], s=1,
                 **kwds)
 
             ax.scatter(X[npm_indices, 0][not_ok], X[npm_indices, 1][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
                 **kwds)
 
-            axes[1].scatter(X[npm_indices, 0], X[npm_indices, 2], c=results.T[i], s=1, **kwds)
+            axes[1].scatter(X[npm_indices, 0], X[npm_indices, 2], c=npm_results.T[i], s=1, **kwds)
             axes[1].scatter(X[npm_indices, 0][not_ok], X[npm_indices, 2][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
                 **kwds)
 
@@ -434,130 +553,3 @@ if __name__ == "__main__":
                 ax.set_ylim(ax.get_ylim()[::-1])
             cbar = plt.colorbar(scat)
 
-
-        raise a
-
-
-        model_indices = npm_indices[~not_ok]
-        results = results[~not_ok]
-
-        # Run the gaussian process on the single star estimates.
-        gp_block_size = 10000
-        G = 5 # number of kernel hyperparameters
-        gp_predict_indices = (0, 1, 2, 3, 4)
-        gp_parameters = np.zeros((len(gp_predict_indices), G))
-        gp_predictions = np.nan * np.ones((X.shape[0], 2 * len(gp_predict_indices)))
-
-        x = X[model_indices]
-            
-        for i, index in enumerate(gp_predict_indices):
-
-            y = results[:, index]
-
-            metric = np.var(x, axis=0)
-            kernel = george.kernels.Matern32Kernel(metric, ndim=x.shape[1])
-
-            gp = george.GP(kernel, 
-                           mean=np.mean(y), fit_mean=True,
-                           white_noise=np.log(np.std(y)), fit_white_noise=True)
-
-            assert len(gp.parameter_names) == G
-
-            def nll(p):
-                gp.set_parameter_vector(p)
-                ll = gp.log_likelihood(y, quiet=True)
-                return -ll if np.isfinite(ll) else 1e25
-
-            def grad_nll(p):
-                gp.set_parameter_vector(p)
-                return -gp.grad_log_likelihood(y, quiet=True)
-
-            gp.compute(x)
-            logger.info("Initial \log{{L}} = {:.2f}".format(gp.log_likelihood(y)))
-            logger.info("initial \grad\log{{L}} = {}".format(gp.grad_log_likelihood(y)))
-
-            p0 = gp.get_parameter_vector()
-
-            t_init = time()
-            result = op.minimize(nll, p0, jac=grad_nll, method="L-BFGS-B")
-            t_opt = time() - t_init
-
-
-            gp.set_parameter_vector(result.x)
-            logger.info("Result: {}".format(result))
-            logger.info("Final logL = {:.2f}".format(gp.log_likelihood(y)))
-            logger.info("Took {:.0f} seconds to optimize".format(t_opt))
-
-            gp_parameters[i] = result.x
-
-            # Predict the quantity and the variance.
-            B = int(np.ceil(S / gp_block_size))
-
-            logger.info(f"Predicting {model_name} {index}")
-
-            with tqdm.tqdm(total=S) as pb:
-                for b in range(B):
-                    s, e = (b * gp_block_size, (b + 1)*gp_block_size)
-                    sb = science_indices[s:1+e]
-
-                    p, p_var = gp.predict(y, X[sb], return_var=True)
-                    gp_predictions[sb, 2*i] = p
-                    gp_predictions[sb, 2*i + 1] = p_var
-
-                    pb.update(e - s)
-
-            """
-            p, p_var = gp.predict(y, X[randn], return_var=True)
-            gp_predictions[randn, 2*i] = p
-            gp_predictions[randn, 2*i + 1] = p_var
-            
-            import matplotlib.pyplot as plt
-
-            fig, ax = plt.subplots()
-            scat = ax.scatter(X.T[0][randn], X.T[1][randn], 
-                c=gp_predictions[:, 2*i][randn], s=1)
-            cbar = plt.colorbar(scat)
-
-            ax.set_title(f"{index} mu")
-
-            fig, ax = plt.subplots()
-            scat = ax.scatter(X.T[0][randn], X.T[1][randn], 
-                c=np.sqrt(gp_predictions[:, 2*i + 1][randn]), s=1)
-            cbar = plt.colorbar(scat)
-
-            ax.set_title(f"{index} sigma")
-
-            raise a
-            """
-
-        model_results[model_name] = [model_indices, results, gp_parameters, gp_predictions]
-
-        # Save predictions so far?
-        """
-        logger.info(f"Saved progress to {results_path}")
-        with open(results_path, "wb") as fp:
-            pickle.dump(dict(config=config, models=model_results), fp)
-        """
-
-    with h5.File(results_path, "w") as h:
-
-        group = h.create_group("models")
-
-        for model_name in results["models"].keys():
-
-            sub_group = group.create_group(model_name)
-
-            dataset_names = (
-                "data_indices", 
-                "mixture_model_results", 
-                "gp_parameters", 
-                "gp_predictions"
-            )
-            for i, dataset_name in enumerate(dataset_names):
-                d = sub_group.create_dataset(dataset_name, 
-                                             data=results["models"][model_name][i])
-    
-    # Calculate PDFs and estimates, etc.
-
-    with open(f"{results_path}.meta", "w") as fp:
-        fp.write(yaml.dump(config))

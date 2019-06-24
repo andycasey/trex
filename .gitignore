@@ -4,5 +4,6 @@ __pycache__
 *.pyc
 *.stan.cached
 data/*.fits
+data/*.hdf5
 
-lucille2
+results/
