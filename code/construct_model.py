@@ -148,9 +148,11 @@ if __name__ == "__main__":
 
     # Plotting
     plot_mixture_model_figures = config.get("plot_mixture_model_figures", False)
-    if plot_mixture_model_figures:
-        figures_dir = os.path.join(results_dir, "figures")
-        os.makedirs(figures_dir, exist_ok=True)
+    figures_dir = os.path.join(results_dir, "figures")
+    os.makedirs(figures_dir, exist_ok=True)
+    
+    # Sampling.
+    sampling = True # TODO: move this to config.
 
 
 
@@ -293,6 +295,34 @@ if __name__ == "__main__":
                           vmin=None, vmax=None, min_entries_per_bin=None,
                           subsample=None, mask=None, **kwargs):
                 '''
+                if sampling:
+
+                    chains = 2 # TODO: move to config file.
+                    sampling_kwds = dict(data=opt_kwds["data"], init=[p_opt] * chains, chains=chains)
+                    try:
+                        samples = model.sampling(**sampling_kwds)
+
+                    except:
+                        None
+
+                    else:
+                        extracted = samples.extract()
+                        chains = np.array([extracted[k] for k in samples.flatnames]).T
+
+                        import corner
+
+                        fig = corner.corner(chains)
+
+                        figure_path = os.path.join(figures_dir, f"{model_name}-{index}-samples.png")
+                        fig.savefig(figure_path, dpi=150)
+
+                        if len(glob(f"{figures_dir}/{model_name}-*-samples.png")) > 20:
+                            raise a
+
+                        # TODO: Save samples somewhere...?
+
+
+
 
                 if plot_mixture_model_figures:
 

@@ -162,30 +162,5 @@ if __name__ == "__main__":
             if not result.success:
                 logger.warn(f"Optimization of GP for parameter {parameter_name} not successful")
 
-            """
-            # Plot the GP predictions across the HRD.
-            xp = np.vstack([sources[ln][()] for ln in lns]).T[data_indices]
-
-            M = np.random.choice(xp.shape[0], 100000, replace=False)
-            xp = xp[M]
-
-            yp, yp_var = gp.predict(Y, xp, return_var=True)
-
-            fig, axes = plt.subplots(2, 2)
-
-            kwds = dict(function="mean", bins=100, cmap="viridis")
-            mpl.plot_binned_statistic(xp.T[0], xp.T[1], yp, ax=axes[0, 0], **kwds)
-            mpl.plot_binned_statistic(xp.T[0], xp.T[1], np.sqrt(yp_var), ax=axes[1, 0], **kwds)
-
-            mpl.plot_binned_statistic(xp.T[0], xp.T[2], yp, ax=axes[0, 1], **kwds)
-            mpl.plot_binned_statistic(xp.T[0], xp.T[2], yp, ax=axes[1, 1], **kwds)
-
-            fig.tight_layout()
-
-            fig.savefig(f"{figures_dir}/{model_name}-{parameter_name}-gp-predictions-mean.png", dpi=150)
-
-            plt.close("all")
-            """
-
     # Close results file
     results.close()
