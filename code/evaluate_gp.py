@@ -64,6 +64,7 @@ if __name__ == "__main__":
     
 
     # TODO: store in config
+    overwrite = False
     return_var = True
     batch_size = 15000
 
@@ -89,6 +90,10 @@ if __name__ == "__main__":
             g.create_dataset("source_id", data=sources["source_id"][()][data_indices])
 
         for parameter_name in parameter_names:
+
+            if parameter_name in g and not overwrite:
+                logger.warning(f"GP predictions exist for {model_name}:{parameter_name} -- skipping")
+                continue
 
             logger.info(f"Running GP predictions for {model_name}: {parameter_name}")
 

@@ -28,6 +28,8 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 
+overwrite = False
+
 if __name__ == "__main__":
 
     config_path = sys.argv[1]
@@ -78,10 +80,14 @@ if __name__ == "__main__":
 
         lns = list(model_config["kdtree_label_names"]) 
 
-        for parameter_name in ("mu_single", "sigma_single", "mu_multiple", "sigma_multiple"):
+        # Get the mixture model results.
+        group = results[f"{model_name}/mixture_model"]
 
-            # Get the mixture model results.
-            group = results[f"{model_name}/mixture_model"]
+        for parameter_name in ("theta", "mu_single", "sigma_single", "mu_multiple", "sigma_multiple"):
+
+            if parameter_name in results[f"{model_name}/gp"] and not overwrite:
+                logger.warn(f"GP already exists for {model_name}:{parameter_name} -- skipping")
+                continue
             
             is_ok = group["is_ok"][()]
 
@@ -119,7 +125,7 @@ if __name__ == "__main__":
 
             except KeyError:
                 p0 = gp.get_parameter_vector()
-                logger.warn(f"Using default initial guess: {p0}")
+                logger.warning(f"Using default initial guess: {p0}")
 
             else:
                 if p0.size != gp.get_parameter_vector().size:
