@@ -97,7 +97,7 @@ def plot_binned_statistic(x, y, z, bins=100, function=np.nanmedian,
                           xlabel=None, ylabel=None, zlabel=None,
                           ax=None, colorbar=False, figsize=(8, 8),
                           vmin=None, vmax=None, min_entries_per_bin=None,
-                          subsample=None, mask=None, **kwargs):
+                          subsample=None, mask=None, full_output=False, **kwargs):
     
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=figsize)
@@ -142,7 +142,8 @@ def plot_binned_statistic(x, y, z, bins=100, function=np.nanmedian,
         vmin=vmin, vmax=vmax,
         aspect=np.ptp(xedges)/np.ptp(yedges), 
         extent=(xedges[0], xedges[-1], yedges[-1], yedges[0]),
-        cmap="inferno")
+        cmap="inferno",
+        interpolation="bilinear")
     imshow_kwds.update(kwargs)
     
     image = ax.imshow(H.T, **imshow_kwds)
@@ -157,4 +158,5 @@ def plot_binned_statistic(x, y, z, bins=100, function=np.nanmedian,
         ax.set_ylabel(ylabel)
 
     #fig.tight_layout()
-    return fig
+
+    return (fig, image) if full_output else fig

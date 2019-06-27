@@ -70,11 +70,7 @@ if __name__ == "__main__":
     data_indices = results["indices"]["data_indices"][()]
     npm_indices = results["indices"]["npm_indices"][()]
 
-
-
     for model_name, model_config in config["models"].items():
-        if model_name == "ast": continue
-
         logger.info(f"Running {model_name} model")
 
         lns = list(model_config["kdtree_label_names"]) 
@@ -100,19 +96,23 @@ if __name__ == "__main__":
 
         y = sources[predictor_label_name][()][data_indices]
 
+        w = results[f"{model_name}/gp_predictions/theta"][()][:, 0]
+
         ln_s = g.create_dataset("single", data=np.nan * np.ones(N))
 
         mu_s = results[f"{model_name}/gp_predictions/mu_single"][()][:, 0]
         sigma_s = results[f"{model_name}/gp_predictions/sigma_single"][()][:, 0]
-        
+
+        print(model_name, np.isfinite(w).sum(), np.isfinite(mu_s).sum(), np.isfinite(sigma_s).sum())
+
         # Evaluate log-likelihood
-        ln_s[:] = utils.normal_lpdf(y, mu_s, sigma_s)
+        ln_s[:] = np.log(w) + utils.normal_lpdf(y, mu_s, sigma_s)
 
         ln_m = g.create_dataset("multiple", data=np.nan * np.ones(N))
         mu_m = results[f"{model_name}/gp_predictions/mu_multiple"][()][:, 0]
         sigma_m = results[f"{model_name}/gp_predictions/sigma_multiple"][()][:, 0]
 
-        ln_m[:] = utils.lognormal_lpdf(y, mu_m, sigma_m)
+        ln_m[:] = np.log(1-w) + utils.lognormal_lpdf(y, mu_m, sigma_m)
 
         lp = np.array([ln_s[()], ln_m[()]]).T
         
@@ -120,6 +120,9 @@ if __name__ == "__main__":
             ratio = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))    
 
         g.create_dataset("ratio_single", data=ratio)
+
+        # Do many draws...
+
 
         """
         # Calculate evidences.
