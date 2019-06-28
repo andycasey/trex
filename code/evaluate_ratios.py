@@ -203,7 +203,10 @@ if __name__ == "__main__":
         with np.errstate(under="ignore"):
             ratio = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))
 
-        results.create_dataset("model_selection/likelihood/joint_ratio_single", data=ratio)
+        dataset_name = "model_selection/likelihood/joint_ratio_single"
+        if dataset_name in results:
+            del results[dataset_name]
 
+        results.create_dataset(dataset_name, data=ratio)
 
     results.close()
