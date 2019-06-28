@@ -16,7 +16,7 @@ import mpl_utils
 
 def binned_gp_expectation_values(bp_rp, apparent_mag, absolute_mag, 
                                  expectation_values, num_bins=100,
-                                 function="mean", colorbar_labels=None, **kwargs):
+                                 function="mean", band="g", colorbar_labels=None, **kwargs):
 
     if not isinstance(expectation_values, tuple):
         raise TypeError("expectation_values must be a tuple")
@@ -59,7 +59,6 @@ def binned_gp_expectation_values(bp_rp, apparent_mag, absolute_mag,
             ax.set_aspect(np.ptp(ax.get_xlim())/np.ptp(ax.get_ylim()))
             ax.set_aspect("auto")
 
-            ax.set_xlim(0, 5)
             ax.xaxis.set_major_locator(MaxNLocator(3))
             ax.yaxis.set_major_locator(MaxNLocator(6))
 
@@ -74,11 +73,10 @@ def binned_gp_expectation_values(bp_rp, apparent_mag, absolute_mag,
 
             if ax.is_first_col():
                 # labels
-                ax.set_ylabel(get_label("absolute_g_mag", "absolute g mag"))
-                ax.set_ylim(11, -11)
+                ax.set_ylabel(get_label(f"absolute_{band}_mag", f"absolute {band} mag"))
 
             else:
-                ax.set_ylabel(get_label("apparent_g_mag", "apparent g mag"))
+                ax.set_ylabel(get_label(f"apparent_{band}_mag", f"apparent {band} mag"))
 
                 
         # Do axes, etc.
@@ -116,9 +114,16 @@ def log_density_gp_expectation_value(x, y, **kwargs):
 
 
 
-def _get_binned_gp_expectation_values(sources, results, model_name, parameter_names=None, **kwargs):
+def _get_binned_gp_expectation_values(sources, results, model_name, band="g", parameter_names=None, **kwargs):
+
     if parameter_names is None:
         parameter_names = ("theta", "mu_single", "sigma_single", "mu_multiple", "sigma_multiple")
+
+    band = f"{band.lower()}"
+    bands = ("bp", "rp", "g")
+    if band not in bands:
+        raise ValueError(f"band must be one of {bands}")
+
 
     # Get expectation values.
     expectation_values = []
@@ -152,6 +157,7 @@ def _get_binned_gp_expectation_values(sources, results, model_name, parameter_na
 
 
     kwds = dict(bp_rp=bp_rp,
+                band=band,
                 apparent_mag=apparent_mag,
                 absolute_mag=absolute_mag,
                 expectation_values=expectation_values,
@@ -164,8 +170,52 @@ def _get_binned_gp_expectation_values(sources, results, model_name, parameter_na
     return kwds
 
 
+def binned_posterior_probability(bp_rp, apparent_mag, absolute_mag, ratios, **kwargs):
+
+    fig = kwargs.pop("fig", None)
+    if fig is None:
+        fig, ax = plt.subplots(figsize=kwargs.pop("figsize", (8, 8)))
+    else:
+        ax = fig.axes[0]
+
+    latex_labels = kwargs.pop("latex_labels", dict())
+    band = kwargs.pop("band", None)
+
+    kwds = dict(function="mean", ax=ax, full_output=True)
+    kwds.update(kwargs)
+    _, im = mpl_utils.plot_binned_statistic(bp_rp, absolute_mag, ratios, **kwds)
+
+    return fig
 
 
+
+
+def _get_binned_posterior_probability_data(sources, results, model_name, band="g", **kwargs):
+
+    ratios = results[f"model_selection/likelihood/{model_name}/ratio_single"][()]
+
+    indices = results["indices/data_indices"][()]
+
+    bp_rp = sources["bp_rp"][()][indices]
+
+    # TODO: need the right absolute/apparent mags to use! FUCK!
+    apparent_mag = sources[f"phot_{band}_mean_mag"][()][indices]
+    absolute_mag = sources[f"absolute_{band}_mag"][()][indices]
+
+    mask = None
+    latex_labels = dict()
+
+    kwds = dict(bp_rp=bp_rp,
+                band=band,
+                apparent_mag=apparent_mag,
+                absolute_mag=absolute_mag,
+                ratios=ratios,
+                min_entries_per_bin=1,
+                mask=mask,
+                latex_labels=latex_labels)
+    kwds.update(kwargs)
+
+    return kwds
 
 
 
@@ -199,16 +249,92 @@ if __name__ == "__main__":
     results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
 
     # TODO: REMOVE THIS
-    results = h5.File(results_path + ".backup", "r")
+    results = h5.File(results_path, "r")
 
     data_path = os.path.join(pwd, config["data_path"])
     data = h5.File(data_path, "r")
 
     sources = data["sources"]
 
+
+    kwds = _get_binned_posterior_probability_data(sources, results, "rv", band="rp")
+    mask = (kwds["absolute_mag"] > -10) \
+         * (kwds["bp_rp"] < 4) \
+         * (kwds["absolute_mag"] < 10)
+
+    kwds.update(min_entries_per_bin=2,
+                bins=200, 
+                interpolation="none",
+                function="median",
+                mask=mask, cmap="magma")
+
+
+    fig = binned_posterior_probability(**kwds)
+   
+
+
+
+    raise a
+
+
+
+    kwds = _get_binned_gp_expectation_values(
+                                       sources, results, "rv",
+                                       band="rp", 
+                                       parameter_names=("mu_single", "sigma_single"),
+                                       function="median",
+                                       subsample=None,
+                                       bins=150, interpolation="none",
+                                       min_entries_per_bin=2,
+                                       cmap="magma")
+
+    mask = None
+    mask = (kwds["bp_rp"] < 3) \
+         * (kwds["bp_rp"] > 0.2) \
+         * (kwds["absolute_mag"] > -4) \
+         * (kwds["apparent_mag"] > 6)
+
+    kwds.update(figsize=(9.5, 7.5),
+                mask=mask,
+                norm_percentiles=(16, 50, 84))
+
+    fig = binned_gp_expectation_values(**kwds)
+
+
+
+
+
+    raise a
+
+
+
+    kwds = _get_binned_posterior_probability_data(sources, results, "ast")
+    mask = (kwds["absolute_mag"] > -3) \
+         * (kwds["bp_rp"] < 4) \
+         * (kwds["absolute_mag"] < 10)
+
+    kwds.update(min_entries_per_bin=5,
+                bins=200, 
+                interpolation="none",
+                function="median",
+                mask=mask, cmap="magma")
+
+
+    fig = binned_posterior_probability(**kwds)
+   
+
+    ax = fig.axes[0]
+    ax.set_facecolor("#eeeeee")
+
+
+
+    raise a
+
+
+
     kwds = _get_binned_gp_expectation_values(
                                        sources, results, "ast", 
-                                       parameter_names=("mu_single", "sigma_single"),
+                                       parameter_names=("mu_single", "sigma_single", "theta"),
                                        function="median",
                                        subsample=100000,
                                        bins=100, interpolation="none",
@@ -221,15 +347,16 @@ if __name__ == "__main__":
 
     from matplotlib.colors import LogNorm
 
-    mask = (kwds["expectation_values"][1] < 0.75)
+    mask = (kwds["expectation_values"][1] < 0.5) \
+         * (kwds["apparent_mag"] > 5)
 
     fig = log_density_gp_expectation_value(kwds["apparent_mag"], kwds["expectation_values"][1], 
-                                            norm=LogNorm(), bins=150,
+                                            norm=LogNorm(), bins=200,
                                             interpolation="none",
-                                            mask=mask, cmap="magma",
-                                            min_entries_per_bin=10)
+                                            mask=mask, cmap="Greys",
+                                            min_entries_per_bin=5)
     ax = fig.axes[0]
-    ax.set_facecolor("#eeeeee")
+    ax.set_facecolor("#FFFFFF")
     ax.set_ylim(ax.get_ylim()[::-1])
 
     ax.set_aspect(np.ptp(ax.get_xlim())/np.ptp(ax.get_ylim()))
@@ -239,15 +366,20 @@ if __name__ == "__main__":
 
 
 
-    fig = log_density_gp_expectation_value(kwds["apparent_mag"], kwds["expectation_values"][0], 
-                                            norm=LogNorm(), bins=150,
+
+
+
+
+    fig = log_density_gp_expectation_value(kwds["absolute_mag"], np.clip(kwds["expectation_values"][2], 0, 1),
+                                            norm=LogNorm(), bins=250,
                                             interpolation="none",
                                             mask=None, cmap="magma",
-                                            min_entries_per_bin=10)
+                                            min_entries_per_bin=1)
     fig.axes[0].set_facecolor("#eeeeee")
 
     fig.axes[0].set_ylim(fig.axes[0].get_ylim()[::-1])
 
-    # Plot the expectation value of the GPs across the parameter space.
 
-    # 2 * 
+
+    # Plot the mean likelihood ratio.
+
