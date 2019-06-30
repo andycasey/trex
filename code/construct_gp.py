@@ -83,6 +83,11 @@ if __name__ == "__main__":
         # Get the mixture model results.
         group = results[f"{model_name}/mixture_model"]
 
+        gp_group_name = f"{model_name}/gp"
+        if gp_group_name not in results:
+            results.create_group(gp_group_name)
+
+
         for parameter_name in ("theta", "mu_single", "sigma_single", "mu_multiple", "sigma_multiple"):
 
             if parameter_name in results[f"{model_name}/gp"] and not overwrite:
@@ -92,10 +97,11 @@ if __name__ == "__main__":
             is_ok = group["is_ok"][()]
 
             # Fit a gaussian process model.
-            X = np.vstack([sources[ln][()] for ln in lns]).T[data_indices][npm_indices]
-            Y = group[parameter_name][()]
+            X = np.vstack([sources[ln][()] for ln in lns]).T[data_indices][npm_indices][is_ok]
+            Y = group[parameter_name][()][is_ok]
 
             # TODO: Only include those that are 'is_ok'?
+
 
             metric = np.var(X, axis=0)
             kernel = george.kernels.ExpSquaredKernel(metric=metric, ndim=metric.size)

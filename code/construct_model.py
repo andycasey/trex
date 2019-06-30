@@ -152,8 +152,16 @@ if __name__ == "__main__":
     os.makedirs(figures_dir, exist_ok=True)
     
     # Sampling.
-    sampling = True # TODO: move this to config.
+    sampling = False # TODO: move this to config.
 
+    if plot_mixture_model_figures:
+        if config["multiprocessing"]:
+            raise ValueError("you want to plot figures and do multiprocessing?")
+
+        global fig, axes
+        fig, axes = plt.subplots(1, 3, figsize=(12, 3))
+
+        logger.info("Set globals")
 
 
     model_results = dict()
@@ -190,14 +198,14 @@ if __name__ == "__main__":
         npm_results = np.zeros((M, 5))
         done = np.zeros(M, dtype=bool)
 
-
         if plot_mixture_model_figures:
-
-            fig, axes = plt.subplots(1, 3, figsize=(12, 3))
 
             kwds = dict(function="count", bins=250, cmap="Greys", norm=LogNorm())
             mpl.plot_binned_statistic(X[:, 0], X[:, 1], X[:, 1], ax=axes[0], **kwds)
             mpl.plot_binned_statistic(X[:, 0], X[:, 2], X[:, 2], ax=axes[1], **kwds)
+
+            for ax in axes[:2]:
+                ax.set_aspect(np.ptp(ax.get_xlim())/np.ptp(ax.get_ylim()))
 
         # TODO: put scalar to the config file.
         def optimize_mixture_model(index, inits=None, scalar=5, debug=False):
@@ -311,10 +319,10 @@ if __name__ == "__main__":
 
                         import corner
 
-                        fig = corner.corner(chains)
+                        corner_fig = corner.corner(chains)
 
                         figure_path = os.path.join(figures_dir, f"{model_name}-{index}-samples.png")
-                        fig.savefig(figure_path, dpi=150)
+                        corner_fig.savefig(figure_path, dpi=150)
 
                         if len(glob(f"{figures_dir}/{model_name}-*-samples.png")) > 20:
                             raise a
@@ -533,7 +541,7 @@ if __name__ == "__main__":
 
             not_ok_sigma = sigma > tol_sigma
 
-            #not_ok = not_ok_bound + not_ok_sigma
+            not_ok = not_ok_bound + not_ok_sigma
             not_ok = not_ok_sigma
 
             done[not_ok] = False
@@ -561,7 +569,7 @@ if __name__ == "__main__":
         # Make some figures
         import matplotlib.pyplot as plt
         for i in range(5):
-            fig, axes = plt.subplots(1, 2)
+            f, axes = plt.subplots(1, 2)
             ax = axes[0]
             ax.set_title(f"{model_name} {i}")
 

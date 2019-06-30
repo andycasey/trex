@@ -35,10 +35,6 @@ ignore_parameters = [
     "astrometric_unit_weight_error",
 ]
 
-if False:
-    ignore_parameters.extend([
-    ])
-
 print(f"Ignoring parameters: {','.join(ignore_parameters)}")
 
 with h5.File(output_path, "w") as h:
@@ -55,7 +51,8 @@ with h5.File(output_path, "w") as h:
                              data=np.sqrt(group["astrometric_chi2_al"][()]/(group["astrometric_n_good_obs_al"][()] - 5)))
 
         group.create_dataset("rv_jitter",
-                             data=group["radial_velocity_error"][()]/np.sqrt(group["rv_nb_transits"][()] * 0.5 * np.pi))
+                             data=group["radial_velocity_error"][()] * np.sqrt(group["rv_nb_transits"][()] * np.pi / 2))
+
 
         mu = 5 * np.log10(group["parallax"][()]/100.0)
         S = np.sqrt(group["astrometric_n_good_obs_al"][()])
