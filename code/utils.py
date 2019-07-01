@@ -63,6 +63,33 @@ def lognorm_pdf(x, lognorm_mu, lognorm_sigma, theta):
 
     return pdf
 
+
+def f(y, w, s_mu, s_sigma, b_mu, b_sigma):
+
+    y = np.atleast_1d(y)
+
+    s_ivar, b_ivar = (s_sigma**-2, b_sigma**-2)
+
+    hl2p = 0.5 * np.log(2*np.pi)
+
+    s_lpdf = np.log(w) \
+           - 0.5 * (y - s_mu)**2 * s_ivar + 0.5 * np.log(s_ivar) - hl2p
+    b_lpdf = np.log(1 - w) \
+           - 0.5 * (np.log(y) - b_mu)**2 * b_ivar - np.log(y * b_sigma) - hl2p
+
+    ll = np.sum(logsumexp([s_lpdf, b_lpdf], axis=0))
+
+    return ll
+
+
+def g(y, w, s_mu, s_sigma, b_mu, b_sigma):
+
+    df_dw = np.log(np.sum(np.exp(1/w) - np.exp(1/(1-w))))
+    return df_dw
+
+
+
+
 def ln_likelihood(y, theta, s_mu, s_sigma, b_mu, b_sigma):
     
     s_ivar = s_sigma**-2
