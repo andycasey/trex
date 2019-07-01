@@ -122,7 +122,7 @@ def plot_binned_statistic(x, y, z, bins=100, function=np.nanmedian,
 
     if min_entries_per_bin is not None:
         if function != "count":
-            H_count, _, __, ___ = binned_statistic_2d(
+            H_count, xedges, yedges, binnumber = binned_statistic_2d(
                 x[finite], y[finite], z[finite],
                 statistic="count", bins=bins)
 
@@ -130,6 +130,7 @@ def plot_binned_statistic(x, y, z, bins=100, function=np.nanmedian,
             H_count = H
 
         H[H_count < min_entries_per_bin] = np.nan
+
 
     if (vmin is None or vmax is None) and "norm" not in kwargs:
         vmin_default, med, vmax_default = np.nanpercentile(H, kwargs.pop("norm_percentiles", [5, 50, 95]))

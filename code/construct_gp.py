@@ -88,7 +88,9 @@ if __name__ == "__main__":
             results.create_group(gp_group_name)
 
 
-        for parameter_name in ("theta", "mu_single", "sigma_single", "mu_multiple", "sigma_multiple"):
+        for j, parameter_name in enumerate(("theta", "mu_single", "sigma_single", "mu_multiple", "sigma_multiple")):
+
+            logger.info(f"Running model {model_name}:{parameter_name}")
 
             if parameter_name in results[f"{model_name}/gp"] and not overwrite:
                 logger.warn(f"GP already exists for {model_name}:{parameter_name} -- skipping")
