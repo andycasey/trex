@@ -25,6 +25,8 @@ from shutil import copyfile
 from glob import glob
 
 from matplotlib.colors import LogNorm
+import matplotlib.pyplot as plt
+import corner
 
 import george
 
@@ -152,7 +154,7 @@ if __name__ == "__main__":
     os.makedirs(figures_dir, exist_ok=True)
     
     # Sampling.
-    sampling = False # TODO: move this to config.
+    sampling = True # TODO: move this to config.
 
     if plot_mixture_model_figures:
         if config["multiprocessing"]:
@@ -179,6 +181,7 @@ if __name__ == "__main__":
 
         Z = np.vstack([sources[ln][()] for ln in lns]).T
         X, Y = Z[data_mask, :-1], Z[data_mask, -1]
+        S = sources["source_id"][()][data_mask]
 
         N, D = X.shape
 
@@ -317,24 +320,40 @@ if __name__ == "__main__":
                         extracted = samples.extract()
                         chains = np.array([extracted[k] for k in samples.flatnames]).T
 
-                        import corner
+                        latex_labels = dict(theta=r"$w$",
+                                            mu_single=r"$\mu_\mathrm{single}$",
+                                            sigma_single=r"$\sigma_\mathrm{single}$",
+                                            mu_multiple=r"$\mu_\mathrm{multiple}$",
+                                            sigma_multiple=r"$\sigma_\mathrm{multiple}$")
 
-                        corner_fig = corner.corner(chains)
 
-                        figure_path = os.path.join(figures_dir, f"{model_name}-{index}-samples.png")
+                        corner_fig = corner.corner(chains, labels=[latex_labels[k] for k in samples.flatnames])
+
+                        source_id = S[index]
+                        figure_path = os.path.join(figures_dir, f"{model_name}-{source_id}-samples.png")
                         corner_fig.savefig(figure_path, dpi=150)
 
-                        if len(glob(f"{figures_dir}/{model_name}-*-samples.png")) > 20:
-                            raise a
+                        chains_path = os.path.join(figures_dir, f"{model_name}-{source_id}-chains.pkl")
 
-                        # TODO: Save samples somewhere...?
+                        dump = dict(names=samples.flatnames,
+                                    chains=chains,
+                                    y=y,
+                                    ball=ball,
+                                    X=X[index])
+
+                        with open(chains_path, "wb") as fp:
+                            pickle.dump(dump, fp)
+
+                        plt.close("all")
 
 
 
 
                 if plot_mixture_model_figures:
 
-                    figure_path = os.path.join(figures_dir, f"{model_name}-{index}.png")
+                    source_id = S[index]
+
+                    figure_path = os.path.join(figures_dir, f"{model_name}-{source_id}.png")
 
                     
                     x_upper = 2 * config["models"][model_name]["bounds"]["mu_single"][1]
