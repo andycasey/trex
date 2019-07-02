@@ -301,8 +301,66 @@ def binned_posterior_probability(bp_rp, apparent_mag, absolute_mag, ratios, **kw
     kwds.update(kwargs)
     _, im = mpl_utils.plot_binned_statistic(bp_rp, absolute_mag, ratios, **kwds)
 
+    ax.set_aspect(np.ptp(ax.get_xlim())/np.ptp(ax.get_ylim()))
+    ax.xaxis.set_major_locator(MaxNLocator(5))
+    ax.yaxis.set_major_locator(MaxNLocator(5))
+    ax.set_xlabel(r"{bp - rp}")
+    ax.set_ylabel(r"{absolute G magnitude}")
+    ax.set_facecolor("#eeeeee")   
+    fig.tight_layout()
+
     return fig
 
+
+def hist_literature_single_stars_and_binaries(sb9, soubiran, **kwargs):
+
+    N = 3
+    fig, axes = plt.subplots(1, 3, figsize=kwargs.pop("figsize", (9, 3.5)))
+
+    latex_labels = (r"{radial velocity jitter} $j_\mathrm{rv}$ $/$ {km\,s}$^{-1}$", r"{astrometric jitter} $j_\mathrm{ast}$", r"{photometric jitter} $j_\mathrm{phot}$")
+
+    kwds = dict(histtype="barstacked")
+
+    for i, ax in enumerate(axes):
+        ok = np.isfinite(sb9.T[i] * soubiran.T[i])
+        #ax.semilogx
+        x1, x2 = x = [soubiran.T[i][ok], sb9.T[i][ok]][::-1]
+        x = np.hstack(x)
+
+        """
+        bins = np.logspace(int(np.log10(x.min())) - 0.5, 0.5 + int(np.log10(x.max())), 20)
+        print(bins)
+
+        ax.hist([x1, x2], bins=bins, histtype="barstacked")
+        """
+
+        bins = np.logspace(int(np.log10(x.min())) - 0.5, 0.5 + int(np.log10(x.max())), 20)
+        kwds["bins"] = np.log10(bins)
+        kwds.update(kwargs)
+        ax.hist([np.log10(x1), np.log10(x2)], **kwds)
+
+        ax.yaxis.set_major_locator(MaxNLocator(4))
+
+        ticks = np.unique(np.log10(bins).astype(int))
+        print(ticks)
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([r"$10^{{{0}}}$".format(t) for t in ticks])
+        
+        minor_ticks = []
+        for k in range(ticks[0] - 1, ticks[-1] + 1):
+            for j in range(2, 10):
+                minor_ticks.append(k + np.log10(j))
+
+        xlim = ax.get_xlim()
+        ax.set_xticks(minor_ticks, minor=True)
+        ax.set_xlim(xlim)
+
+        ax.set_xlabel(latex_labels[i])
+
+        ax.set_aspect((np.ptp(ax.get_xlim()))/np.ptp(ax.get_ylim()))
+        
+    fig.tight_layout()
+    return fig
 
 
 
@@ -376,7 +434,11 @@ if __name__ == "__main__":
 
     def _get_binned_posterior_probability_data(sources, results, model_name, band="g", **kwargs):
 
-        ratios = results[f"model_selection/likelihood/{model_name}/ratio_single"][()]
+
+        if model_name == "joint":
+            ratios = results[f"model_selection/likelihood/joint_ratio_single"][()]
+        else:
+            ratios = results[f"model_selection/likelihood/{model_name}/ratio_single"][()]
 
         indices = results["indices/data_indices"][()]
 
@@ -561,6 +623,7 @@ if __name__ == "__main__":
         fig.savefig(f"{path}.png", dpi=150)
         print(f"Saved figure to {path}")
 
+
     # Before we even show any results:
     # Make comparison of Soubiran and SB9
     catalog_path = os.path.join(pwd, "data/catalogs")
@@ -569,7 +632,7 @@ if __name__ == "__main__":
 
     # Soubiran has fewer cros-smatches than SB9.
     # Calculate distance metrics.
-    def _get_closest_sb9_subset(sb9_catalog, soubiran_catalog, parameter_names=None):
+    def _xm_literature_single_stars_and_binaries(sb9_catalog, soubiran_catalog, parameter_names=None):
         if parameter_names is None:
             parameter_names = ("bp_rp", "phot_g_mean_mag", "absolute_g_mag")
 
@@ -603,18 +666,6 @@ if __name__ == "__main__":
         dist = np.sum((A[A_idx] - B)**2, axis=1)
         keep = dist < 0.1
 
-        #A = A[A_idx][keep]
-        #B = B[keep]
-
-        #return dict(sb9=A, soubiran==B)
-
-
-        fig, axes = plt.subplots(1, A.shape[1] + 1)
-        for i, ax in enumerate(axes[:-1]):
-            ax.hist([A[:, i], B[:, i]], bins=25)
-
-        axes[-1].hist(dist[keep])
-
         distinguishing_parameters = ("rv_jitter", "ast_jitter", "phot_g_variability")
 
         for catalog in (sb9_catalog, soubiran_catalog):
@@ -630,215 +681,23 @@ if __name__ == "__main__":
                 elif parameter == "phot_g_variability":
                     catalog[parameter] = np.sqrt(catalog["astrometric_n_good_obs_al"]) * (catalog["phot_g_mean_flux_error"]/catalog["phot_g_mean_flux"])
 
-                else:
-                    assert False
 
-
-        N_bins = 20
-        bins = dict(rv_jitter=np.linspace(0, 20, N_bins),
-                    ast_jitter=np.linspace(0, 25, N_bins),
-                    phot_g_variability=np.linspace(0, 0.5, N_bins))
-        bins = dict()
-
-        fig, axes = plt.subplots(2, 3)
-
-        def _get_data(pn):
-            x1 = sb9_catalog[pn][A_idx][keep]
-            x2 = soubiran_catalog[pn][keep]
-
-            finite = np.isfinite(x1 * x2)
-
-            V = np.hstack([np.array(x1[finite]), np.array(x2[finite])])
-
-            return (x1[finite], x2[finite], V.min(), V.max())
-
-        for i, (ax, pn) in enumerate(zip(axes[0], distinguishing_parameters)):
-
-            x1, x2, Vmin, Vmax = _get_data(pn)
-
-
-            kwds = dict(bins=np.linspace(Vmin, 1.1 * Vmax, N_bins), alpha=0.5)
-            ax.hist(x1, label="multiple", facecolor="tab:blue", **kwds)
-            ax.hist(x2, label="single", facecolor="tab:red", **kwds)
-
-
-        x1 = sb9_catalog["rv_jitter"][A_idx][keep]
-        x2 = soubiran_catalog["rv_jitter"][keep]
-
-        y1 = sb9_catalog["ast_jitter"][A_idx][keep]
-        y2 = soubiran_catalog["ast_jitter"][keep]
-
-        axes[1, 0].scatter(x1, y1, facecolor="tab:blue", alpha=0.5)
-        axes[1, 0].scatter(x2, y2, facecolor="tab:red", alpha=0.5)
-        axes[1, 0].set_xlabel("rv")
-        axes[1, 0].set_ylabel("ast")
-
-
-        z1 = sb9_catalog["phot_g_variability"][A_idx][keep]
-        z2 = soubiran_catalog["phot_g_variability"][keep]
-
-        axes[1, 1].scatter(x1, z1, facecolor="tab:blue", alpha=0.5)
-        axes[1, 1].scatter(x2, z2, facecolor="tab:red", alpha=0.5)
-        axes[1, 1].set_xlabel("rv")
-        axes[1, 1].set_ylabel("phot")
-
-
-
-        axes[1, 2].scatter(y1, z1, facecolor="tab:blue", alpha=0.5)
-        axes[1, 2].scatter(y2, z2, facecolor="tab:red", alpha=0.5)
-        axes[1, 2].set_xlabel("ast")
-        axes[1, 2].set_ylabel("phot")
 
         X1 = sb9_catalog["rv_jitter","ast_jitter","phot_g_variability"][A_idx]
-        X1 = X1.as_array().view(np.float).data.reshape((-1, 3))
+        X1 = X1.as_array().view(np.float).data.reshape((-1, 3))[keep]
 
         X2 = soubiran_catalog["rv_jitter","ast_jitter","phot_g_variability"]
-        X2 = X2.as_array().view(np.float).data.reshape((-1, 3))
+        X2 = X2.as_array().view(np.float).data.reshape((-1, 3))[keep]
 
-        return (X1, X2)
+        return dict(sb9=X1, soubiran=X2)
 
         
 
-
-    X1, X2 = _get_closest_sb9_subset(sb9_catalog, soubiran_catalog)
-
-    def corner_scatter(X, label_names=None, show_ticks=False, fig=None, figsize=None,
-                       **kwargs):
-        """
-        Make a corner plot where the data are shown as scatter points in each axes.
-
-        :param X:
-            The data, :math:`X`, which is expected to be an array of shape
-            [n_samples, n_features].
-
-        :param label_names: [optional]
-            The label names to use for each feature.
-
-        :param show_ticks: [optional]
-            Show ticks on the axes.
-
-        :param fig: [optional]
-            Supply a figure (with [n_features, n_features] axes) to plot the data.
-
-        :param figsize: [optional]
-            Specify a size for the figure. This parameter is ignored if a `fig` is
-            supplied.
-
-        :returns:
-            A figure with a corner plot showing the data.
-        """
-
-        N, D = X.shape
-        assert N > D, "Stahp doing it wrong"
-        K = D
-
-        if fig is None:
-            if figsize is None:
-                figsize = (2 * K, 2 * K)
-            fig, axes = plt.subplots(K, K, figsize=figsize)
-        
-        axes = np.array(fig.axes).reshape((K, K)).T
-
-        bins = kwargs.pop("bins", [25] * D)
-
-        kwds = dict(s=5, c="tab:blue", alpha=1, rasterized=True)
-        kwds.update(kwargs)
-        
-        for i, x in enumerate(X.T):
-            for j, y in enumerate(X.T):
-                #if j == 0: continue
-
-                try:
-                    ax = axes[i, j]
-
-                except:
-                    continue
-
-
-                if i > j:
-                    ax.set_visible(False)
-                    continue
-
-                elif i == j:
-                    ax.set_facecolor("#eeeeee")
-                    ax.hist(x[np.isfinite(x)], bins=bins[i], facecolor=kwds["c"], alpha=kwds["alpha"], log=False)
-                    ax.set_yticks([])
-                    
-                    if not isinstance(bins[i], int):
-                        ax.set_xlim(bins[i][0], bins[i][-1])
-
-                else:
-                    ax.scatter(x, y, **kwds)
-
-                    if not isinstance(bins[i], int):
-                        ax.set_xlim(bins[i][0], bins[i][-1])
-
-                    if not isinstance(bins[j], int):
-                        ax.set_ylim(bins[j][0], bins[j][-1])
-
-
-                if not show_ticks:
-                    ax.set_xticks([])
-                    ax.set_yticks([])
-
-                else:
-                    if not ax.is_last_row():
-                        ax.set_xticks([])
-                        ax.set_xticklabels([])
-                    else:
-                        ax.xaxis.set_major_locator(MaxNLocator(3))
-
-                    if not ax.is_first_col():
-                        ax.set_yticklabels([])
-                        ax.set_yticks([])
-                    else:
-                        ax.yaxis.set_major_locator(MaxNLocator(3))
-
-
-                if ax.is_last_row() and label_names is not None:
-                    ax.set_xlabel(label_names[i])
-                    
-                if ax.is_first_col() and label_names is not None:
-                    ax.set_ylabel(label_names[j])
-
-                if ax.is_first_col() and ax.is_first_row():
-                    ax.set_ylabel("")
-
-                if i == j:
-                    ax.set_yticks([])
-
-        fig.tight_layout()
-        
-        return fig
-
-
-    ok = np.all(np.isfinite(X1), axis=1) * np.all(np.isfinite(X2), axis=1) \
-       * (X1[:, 2] < 1)
-
-    X1 = X1[ok]
-    X2 = X2[ok]
-
-    X_all = np.vstack([X1, X2])
-    for i in range(X_all.shape[1]):
-        X_all[~np.isfinite(X_all[:, i]), i] = np.nanmean(X_all[:, i])
-
-    bins = []
-    for i in range(X_all.shape[1]):
-        min_, max_ = (np.min(X_all[:, i]), np.max(X_all[:, i]))
-        ptp = np.ptp(X_all[:, i])
-
-        bins.append(np.linspace(min_ - 0.05 * ptp, max_ + 0.05 * ptp, 25))
-
-    #bins = [np.linspace(np.min(X_all[:, i]), np.max(X_all[:, i]), 25) for i in range(X_all.shape[1])]
-
-
-    fig = corner_scatter(X1, show_ticks=True, label_names=("rv","ast", "phot"), bins=bins, alpha=0.75)
-    fig = corner_scatter(X2, show_ticks=True, label_names=("rv", "ast", "phot"), fig=fig,
-                         c="tab:red", bins=bins, zorder=10, alpha=0.75)
-
-
-    raise a
-    
+    # Plot the distributions of jitter for comparable catalogs of single stars and binaries.
+    kwds = _xm_literature_single_stars_and_binaries(sb9_catalog, soubiran_catalog)
+    kwds.update(color=["#000000", "#BBBBBB"])
+    fig = hist_literature_single_stars_and_binaries(**kwds)
+    savefig(fig, "hist-literature-single-stars-and-binaries")
 
 
 
@@ -903,18 +762,96 @@ if __name__ == "__main__":
 
 
 
-    raise a
-
-
     # Plot log density of sources and their excess RV jitter.
-
     kwds = _get_rv_excess(sources, results)
 
     fig = density_rv_excess_vs_absolute_magnitude(K_est=kwds["K_est"],
                                                   absolute_mag=kwds["absolute_g_mag"])
 
+    # TODO: save this one
 
-    raise a # because these get expensive.
+
+    sensible_mask = lambda k: (k["absolute_mag"] < 10) \
+                            * (k["absolute_mag"] > -6) \
+                            * (k["bp_rp"] > 0.25) \
+                            * (k["bp_rp"] < 4)
+
+    mainsequence_mask = lambda k: sensible_mask(k) \
+                                * (k["absolute_mag"] > 2)
+
+    common_kwds = dict(min_entries_per_bin=10,
+                       bins=200,
+                       interpolation="none",
+                       subsample=None,
+                       cmap="magma")
+
+    for function in ("mean", "median"):
+
+        # Plot RV binned
+        kwds = _get_binned_posterior_probability_data(sources, results, "rv", band="g")
+        kwds.update(common_kwds)
+        kwds.update(mask=sensible_mask(kwds), function=function)
+        
+        # TODO: put colorbar on
+        fig = binned_posterior_probability(**kwds)
+        savefig(fig, f"binned-posterior-probability-rv-{function}")
+        
+
+        # Plot ast
+        kwds = _get_binned_posterior_probability_data(sources, results, "ast", band="g")
+        kwds.update(common_kwds)
+        kwds.update(mask=sensible_mask(kwds), function=function)
+
+        # TODO: put colorbar on
+        fig = binned_posterior_probability(**kwds)
+        savefig(fig, f"binned-posterior-probability-ast-{function}")
+
+
+        # Plot ast
+        kwds = _get_binned_posterior_probability_data(sources, results, "joint", band="g")
+        kwds.update(common_kwds)
+        kwds.update(mask=sensible_mask(kwds), function=function)
+
+        # TODO: put colorbar on
+        fig = binned_posterior_probability(**kwds)
+        savefig(fig, f"binned-posterior-probability-joint-{function}")
+
+        # TODO: make same but put all three on one figure.
+
+    # Do it again for just the main-sequence.
+    for function in ("mean", "median"):
+
+        # Plot RV binned
+        kwds = _get_binned_posterior_probability_data(sources, results, "rv", band="g")
+        kwds.update(common_kwds)
+        kwds.update(mask=mainsequence_mask(kwds), function=function)
+        
+        # TODO: put colorbar on
+        fig = binned_posterior_probability(**kwds)
+        savefig(fig, f"main-sequence-binned-posterior-probability-rv-{function}")
+        
+
+        # Plot ast
+        kwds = _get_binned_posterior_probability_data(sources, results, "ast", band="g")
+        kwds.update(common_kwds)
+        kwds.update(mask=mainsequence_mask(kwds), function=function)
+
+        # TODO: put colorbar on
+        fig = binned_posterior_probability(**kwds)
+        savefig(fig, f"main-sequence-binned-posterior-probability-ast-{function}")
+
+
+        # Plot ast
+        kwds = _get_binned_posterior_probability_data(sources, results, "joint", band="g")
+        kwds.update(common_kwds)
+        kwds.update(mask=mainsequence_mask(kwds), function=function)
+
+        # TODO: put colorbar on
+        fig = binned_posterior_probability(**kwds)
+        savefig(fig, f"main-sequence-binned-posterior-probability-joint-{function}")
+
+        # TODO: make same but put all three on one figure.
+
 
 
     for function in ("mean", "median"):
@@ -926,7 +863,7 @@ if __name__ == "__main__":
                                           interpolation="none",
                                           min_entries_per_bin=5,
                                           cmap="magma",
-                                          norm_percentiles=(5, 50, 95),
+                                          norm_percentiles=(16, 50, 84),
                                           latex_labels=dict(bp_rp=r"{bp - rp}",
                                                             absolute_g_mag=r"{absolute G magnitude}",
                                                             apparent_g_mag=r"{apparent G magnitude}"))
@@ -952,124 +889,3 @@ if __name__ == "__main__":
 
         fig = binned_gp_expectation_values(**kwds)
         savefig(fig, f"binned-gp-expectation-values-rv-{kwds['function']}")
-
-
-
-
-    raise a
-
-
-
-    kwds = _get_binned_posterior_probability_data(sources, results, "ast", band="g")
-
-    mask = None
-    bin_number = 200
-
-    kwds.update(min_entries_per_bin=5,
-                bins=(np.linspace(0, 4, bin_number + 1),
-                      np.linspace(-7.5, 7.5, bin_number + 1)),
-                interpolation="none",
-                subsample=1_000_000,
-                function="median",
-                mask=mask, 
-                cmap="magma")
-
-
-    fig = binned_posterior_probability(**kwds)
-   
-
-    # Everything until the next raise a is good
-    raise a
-
-
-
-
-    # Plot binned posterior probability.
-
-
-
-
-
-
-
-
-
-    raise a
-
-
-
-    kwds = _get_binned_posterior_probability_data(sources, results, "ast")
-    mask = (kwds["absolute_mag"] > -3) \
-         * (kwds["bp_rp"] < 4) \
-         * (kwds["absolute_mag"] < 10)
-
-    kwds.update(min_entries_per_bin=5,
-                bins=200, 
-                interpolation="none",
-                function="median",
-                mask=mask, cmap="magma")
-
-
-    fig = binned_posterior_probability(**kwds)
-   
-
-    ax = fig.axes[0]
-    ax.set_facecolor("#eeeeee")
-
-
-
-    raise a
-
-
-
-    kwds = _get_binned_gp_expectation_values(
-                                       sources, results, "ast", 
-                                       parameter_names=("mu_single", "sigma_single", "theta"),
-                                       function="median",
-                                       subsample=100000,
-                                       bins=100, interpolation="none",
-                                       min_entries_per_bin=10,
-                                       cmap="magma")
-
-    fig = binned_gp_expectation_values(**kwds)
-
-
-
-
-
-    mask = (kwds["expectation_values"][1] < 0.5) \
-         * (kwds["apparent_mag"] > 5)
-
-    fig = log_density_gp_expectation_value(kwds["apparent_mag"], kwds["expectation_values"][1], 
-                                            norm=LogNorm(), bins=200,
-                                            interpolation="none",
-                                            mask=mask, cmap="Greys",
-                                            min_entries_per_bin=5)
-    ax = fig.axes[0]
-    ax.set_facecolor("#FFFFFF")
-    ax.set_ylim(ax.get_ylim()[::-1])
-
-    ax.set_aspect(np.ptp(ax.get_xlim())/np.ptp(ax.get_ylim()))
-    ax.xaxis.set_major_locator(MaxNLocator(6))
-    ax.yaxis.set_major_locator(MaxNLocator(6))
-
-
-
-
-
-
-
-
-    fig = log_density_gp_expectation_value(kwds["absolute_mag"], np.clip(kwds["expectation_values"][2], 0, 1),
-                                            norm=LogNorm(), bins=250,
-                                            interpolation="none",
-                                            mask=None, cmap="magma",
-                                            min_entries_per_bin=1)
-    fig.axes[0].set_facecolor("#eeeeee")
-
-    fig.axes[0].set_ylim(fig.axes[0].get_ylim()[::-1])
-
-
-
-    # Plot the mean likelihood ratio.
-
