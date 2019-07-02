@@ -76,6 +76,89 @@ mpl_style = {
 
 
 
+def corner_scatter(X, label_names=None, show_ticks=False, fig=None, figsize=None,
+                   **kwargs):
+    """
+    Make a corner plot where the data are shown as scatter points in each axes.
+
+    :param X:
+        The data, :math:`X`, which is expected to be an array of shape
+        [n_samples, n_features].
+
+    :param label_names: [optional]
+        The label names to use for each feature.
+
+    :param show_ticks: [optional]
+        Show ticks on the axes.
+
+    :param fig: [optional]
+        Supply a figure (with [n_features, n_features] axes) to plot the data.
+
+    :param figsize: [optional]
+        Specify a size for the figure. This parameter is ignored if a `fig` is
+        supplied.
+
+    :returns:
+        A figure with a corner plot showing the data.
+    """
+
+    N, D = X.shape
+    assert N > D, "Stahp doing it wrong"
+    K = D
+
+    if fig is None:
+        if figsize is None:
+            figsize = (2 * K, 2 * K)
+        fig, axes = plt.subplots(K, K, figsize=figsize)
+    
+    axes = np.array(fig.axes).reshape((K, K)).T
+
+    kwds = dict(s=1, c="tab:blue", alpha=0.5, rasterized=True)
+    kwds.update(kwargs)
+    
+    for i, x in enumerate(X.T):
+        for j, y in enumerate(X.T):
+            if j == 0: continue
+
+            try:
+                ax = axes[i, j]
+
+            except:
+                continue
+
+
+            if i > j:
+                ax.set_visible(False)
+                continue
+
+            elif i == j:
+                ax.set_facecolor("#eeeeee")
+                continue
+
+            ax.scatter(x, y, **kwds)
+
+            if not show_ticks:
+                ax.set_xticks([])
+                ax.set_yticks([])
+
+            else:
+                if not ax.is_last_row():
+                    ax.set_xticklabels([])
+                if not ax.is_first_col():
+                    ax.set_yticklabels([])
+
+
+            if ax.is_last_row() and label_names is not None:
+                ax.set_xlabel(label_names[i])
+                
+            if ax.is_first_col() and label_names is not None:
+                ax.set_ylabel(label_names[j])
+
+    fig.tight_layout()
+    
+    return fig
+
+
 def plot_histogram_steps(ax, x_bins, y, y_err, lw=1, **kwargs):
 
     xx = np.array(x_bins).repeat(2)[1:]
