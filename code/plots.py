@@ -123,6 +123,9 @@ def scatter_period_and_rv_semiamplitude_for_known_binaries(P, K, ratio, P_err=No
     ax.axvline(observing_span, c="#666666", zorder=-1, linestyle=":", linewidth=1)
     ax.axvline(2 * observing_span, c="#666666", zorder=-1, linestyle="-", linewidth=1)
 
+    fig.tight_layout()
+
+
     return fig
 
 
@@ -144,12 +147,12 @@ def scatter_excess_rv_jitter_for_known_binaries(K_catalog, K_est, K_catalog_err=
     x, y = (K_catalog, K_est)
     x_err, y_err = (K_catalog_err, K_est_err)
 
-    scatter_kwds = dict(s=10, facecolor="tab:blue")
+    scatter_kwds = dict(s=10)
     scatter_kwds.update(kwargs.pop("scatter_kwds", dict()))
+    scat = ax.scatter(x, y, **scatter_kwds)
 
-    ax.scatter(x, y, **scatter_kwds)
     if x_err is not None or y_err is not None:
-        errorbar_kwds = dict(fmt="none", edgecolor="#000000", zorder=-1)
+        errorbar_kwds = dict(fmt="none", c="#CCCCCC", zorder=-1)
         errorbar_kwds.update(kwargs.pop("errorbar_kwds", dict()))
         ax.errorbar(x, y, xerr=x_err, yerr=y_err, **errorbar_kwds)
 
@@ -160,7 +163,7 @@ def scatter_excess_rv_jitter_for_known_binaries(K_catalog, K_est, K_catalog_err=
     ax.set_ylabel(r"$K_\mathrm{est}\,\,/\,\,\mathrm{km\,s}^{-1}$")
 
     lims = np.array([ax.get_xlim(), ax.get_ylim()])
-    lims = (0, np.max(lims))
+    lims = (-3, np.max(lims))
 
     ax.plot(lims, lims, c="#666666", linestyle=":", zorder=-1, linewidth=0.5)
 
@@ -182,6 +185,10 @@ def scatter_excess_rv_jitter_for_known_binaries(K_catalog, K_est, K_catalog_err=
     aspect = lambda ax: np.ptp(ax.get_xlim())/np.ptp(ax.get_ylim())
     ax.set_aspect(aspect(ax))
     ax_diff.set_aspect(aspect(ax_diff) / height_ratio)
+
+    #if kwargs.get("colorbar", False):
+    #    cbar = plt.colorbar(scat)
+
 
     fig.tight_layout()
     fig.subplots_adjust(hspace=0.05)
@@ -305,6 +312,7 @@ def binned_posterior_probability(bp_rp, apparent_mag, absolute_mag, ratios, **kw
     ax.xaxis.set_major_locator(MaxNLocator(5))
     ax.yaxis.set_major_locator(MaxNLocator(5))
     ax.set_xlabel(r"{bp - rp}")
+    # TODO: actually use the kwd["band"] entry.
     ax.set_ylabel(r"{absolute G magnitude}")
     ax.set_facecolor("#eeeeee")   
     fig.tight_layout()
@@ -489,14 +497,19 @@ if __name__ == "__main__":
 
 
         
-    def _get_rv_excess_for_apw(sources, results, apw_catalog, **kwargs):
+    def _get_rv_excess_for_apw(sources, results, apw_catalog, use_apw_mask=True,**kwargs):
 
 
         # Do the cross-match.
         group_name = "rv/gp_predictions"
         source_ids = results[f"{group_name}/source_id"][()]
-        catalog_source_ids = apw_catalog["source_id"]
+        
+        if use_apw_mask:
+            mask = apw_catalog["converged"]
+            apw_catalog = Table(apw_catalog[mask])
 
+
+        catalog_source_ids = apw_catalog["source_id"]
 
         idx, catalog_idx = cross_match(source_ids, catalog_source_ids)
 
@@ -528,6 +541,7 @@ if __name__ == "__main__":
                     e_K_est=e_K_est,
                     apw_P=apw_catalog["P"][catalog_idx],
                     e_apw_P=apw_catalog["P_err"][catalog_idx],
+                    apw_e=apw_catalog["e"][catalog_idx],
                     ratio=ratio)
 
         kwds.update(kwargs)
@@ -546,10 +560,10 @@ if __name__ == "__main__":
         # Only include good results from SB9
         if use_sb9_mask:
             sb9_mask = (sb9_catalog["f_K1"] != ">") \
-                     * (sb9_catalog["f_T0"] == 0) \
+                     * (sb9_catalog["f_K1"] != "a") \
+                     * (sb9_catalog["f_K1"] != ">a") \
                      * (sb9_catalog["Grade"] > 0) \
-                     * (sb9_catalog["f_omega"] != "a") \
-                     * (sb9_catalog["o_K1"] > 0)
+                     * (sb9_catalog["e_Per"] > 0)
             sb9_catalog = Table(sb9_catalog[sb9_mask])
 
         sb9_source_ids = sb9_catalog["source_id"]       
@@ -584,7 +598,9 @@ if __name__ == "__main__":
                     e_K_est=e_K_est,
                     sb9_P=sb9_catalog["Per"][sb9_idx],
                     e_sb9_P=sb9_catalog["e_Per"][sb9_idx],
-                    ratio=ratio)
+                    ratio=ratio,
+                    sb9_catalog=sb9_catalog[sb9_idx],
+                    sb9_e=sb9_catalog["e"][sb9_idx])
 
         kwds.update(kwargs)
 
@@ -691,7 +707,7 @@ if __name__ == "__main__":
 
         return dict(sb9=X1, soubiran=X2)
 
-        
+
 
     # Plot the distributions of jitter for comparable catalogs of single stars and binaries.
     kwds = _xm_literature_single_stars_and_binaries(sb9_catalog, soubiran_catalog)
@@ -705,7 +721,7 @@ if __name__ == "__main__":
     apw_path = os.path.join(pwd, "data/catalogs/apw-highK-unimodal-xm-gaia.fits")
     apw_catalog = Table.read(apw_path)
 
-    apw_kwds = _get_rv_excess_for_apw(sources, results, apw_catalog)
+    apw_kwds = _get_rv_excess_for_apw(sources, results, apw_catalog, use_apw_mask=True)
     fig = scatter_period_and_rv_semiamplitude_for_known_binaries(P=apw_kwds["apw_P"],
                                                                  K=apw_kwds["apw_K"],
                                                                  ratio=apw_kwds["ratio"],
@@ -717,7 +733,8 @@ if __name__ == "__main__":
     fig = scatter_excess_rv_jitter_for_known_binaries(K_catalog=apw_kwds["apw_K"],
                                                       K_catalog_err=apw_kwds["e_apw_K"],
                                                       K_est=apw_kwds["K_est"],
-                                                      K_est_err=apw_kwds["e_K_est"])
+                                                      K_est_err=apw_kwds["e_K_est"],
+                                                      scatter_kwds=dict(c=apw_kwds["apw_e"], vmin=0, vmax=1, cmap="magma"))
     savefig(fig, "scatter-excess-rv-jitter-for-known-binaries-apw")
 
 
@@ -739,13 +756,15 @@ if __name__ == "__main__":
     fig = scatter_excess_rv_jitter_for_known_binaries(K_catalog=sb9_kwds["sb9_K1"],
                                                       K_catalog_err=sb9_kwds["e_sb9_K1"],
                                                       K_est=sb9_kwds["K_est"],
-                                                      K_est_err=sb9_kwds["e_K_est"])
+                                                      K_est_err=sb9_kwds["e_K_est"],
+                                                      scatter_kwds=dict(c=sb9_kwds["sb9_e"], vmin=0, vmax=1, cmap="magma"),
+                                                      colorbar=True)
     savefig(fig, "scatter-excess-rv-jitter-for-known-binaries-sb9")
-
 
 
     # Now joint (SB9 + APW)
     sb9_kwds = _get_rv_excess_for_sb9(sources, results, sb9_catalog, use_sb9_mask=False)
+    apw_kwds = _get_rv_excess_for_apw(sources, results, apw_catalog, use_apw_mask=False)
     kwds = dict(P=dict(sb9=sb9_kwds["sb9_P"],
                        apw=apw_kwds["apw_P"]),
                 K=dict(sb9=sb9_kwds["sb9_K1"],
@@ -777,7 +796,8 @@ if __name__ == "__main__":
                             * (k["bp_rp"] < 4)
 
     mainsequence_mask = lambda k: sensible_mask(k) \
-                                * (k["absolute_mag"] > 2)
+                                * (k["absolute_mag"] > 2) \
+                                * (k["bp_rp"] < 2.4)
 
     common_kwds = dict(min_entries_per_bin=10,
                        bins=200,
@@ -817,6 +837,9 @@ if __name__ == "__main__":
         savefig(fig, f"binned-posterior-probability-joint-{function}")
 
         # TODO: make same but put all three on one figure.
+
+
+    common_kwds.update(bins=150)
 
     # Do it again for just the main-sequence.
     for function in ("mean", "median"):
