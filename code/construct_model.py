@@ -588,8 +588,8 @@ if __name__ == "__main__":
         # Make some figures
         import matplotlib.pyplot as plt
         for i in range(5):
-            f, axes = plt.subplots(1, 2)
-            ax = axes[0]
+            f, a = plt.subplots(1, 2)
+            ax = a[0]
             ax.set_title(f"{model_name} {i}")
 
             kwds = dict(vmin=lower_bounds[i] if np.isfinite(lower_bounds[i]) else None,
@@ -602,11 +602,11 @@ if __name__ == "__main__":
             ax.scatter(X[npm_indices, 0][not_ok], X[npm_indices, 1][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
                 **kwds)
 
-            axes[1].scatter(X[npm_indices, 0], X[npm_indices, 2], c=npm_results.T[i], s=1, **kwds)
-            axes[1].scatter(X[npm_indices, 0][not_ok], X[npm_indices, 2][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
+            a[1].scatter(X[npm_indices, 0], X[npm_indices, 2], c=npm_results.T[i], s=1, **kwds)
+            a[1].scatter(X[npm_indices, 0][not_ok], X[npm_indices, 2][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
                 **kwds)
 
-            for ax in axes:
+            for ax in a:
                 ax.set_ylim(ax.get_ylim()[::-1])
             cbar = plt.colorbar(scat)
 
