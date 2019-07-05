@@ -64,7 +64,7 @@ if __name__ == "__main__":
     
 
     # TODO: store in config
-    overwrite = False
+    overwrite = True
     return_var = True
     batch_size = 15000
 

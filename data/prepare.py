@@ -53,6 +53,12 @@ with h5.File(output_path, "w") as h:
         group.create_dataset("rv_jitter",
                              data=group["radial_velocity_error"][()] * np.sqrt(group["rv_nb_transits"][()] * np.pi / 2))
 
+        # Fixed...
+        group.create_dataset("j_ast",
+                             data=np.sqrt(group["astrometric_chi2_al"][()]/(group["astrometric_n_good_obs_al"][()] - 5)))
+        group.create_dataset("j_rv",
+                             data=np.sqrt((2/np.pi) * group["rv_nb_transits"][()] * (group["radial_velocity_error"][()]**2 - 0.11**2)))
+
 
         mu = 5 * np.log10(group["parallax"][()]/100.0)
         S = np.sqrt(group["astrometric_n_good_obs_al"][()])
