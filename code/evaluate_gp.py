@@ -35,6 +35,7 @@ logger.setLevel(logging.INFO)
 
 if __name__ == "__main__":
 
+    """"
     config_path = sys.argv[1]
 
     with open(config_path, "r") as fp:
@@ -55,24 +56,29 @@ if __name__ == "__main__":
 
     unique_hash = md5((f"{config_copy}").encode("utf-8")).hexdigest()[:5]
     logger.info(f"Unique hash: {unique_hash}")
+    """
 
+    # Load in the results path.
+    results_path = sys.argv[1]
+    results_dir = os.path.dirname(results_path)
+
+    results = h5.File(results_path, "a")
+
+    config = yaml.load(results.attrs["config"], Loader=yaml.Loader)
+
+    random_seed = int(config["random_seed"])
+    np.random.seed(random_seed)
 
     # Load data.
+    pwd = os.path.dirname(results.attrs["config_path"]).decode("utf-8")
     data_path = os.path.join(pwd, config["data_path"])
     data = h5.File(data_path, "r")
     sources = data["sources"]
     
-
     # TODO: store in config
     overwrite = True
     return_var = True
     batch_size = 15000
-
-    # Load in the results path.
-    results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
-    results_dir = os.path.dirname(results_path)
-
-    results = h5.File(results_path, "a")
 
     data_indices = results["indices"]["data_indices"][()]
 
@@ -80,6 +86,8 @@ if __name__ == "__main__":
 
         lns = list(model_config["kdtree_label_names"]) 
         parameter_names = list(results[f"{model_name}/gp"].keys())
+
+        logger.info(f"Model name {model_name} has GPs for parameters: {parameter_names}")
 
         group_name = f"{model_name}/gp_predictions"
         g = results[group_name] if group_name in results else results.create_group(group_name)
@@ -102,6 +110,8 @@ if __name__ == "__main__":
 
             X = model_info["X"][()]
             Y = model_info["Y"][()]
+
+            print(parameter_name, np.min(Y), np.max(Y), np.percentile(Y, [5, 16, 50, 84, 95]))
 
             kernel_class = getattr(george.kernels, model_info.attrs["kernel"])
             # TODO: magic hack
@@ -135,6 +145,10 @@ if __name__ == "__main__":
                     d[si:ei, 1] = np.inf
                 else:
                     d[si:ei, :] = np.vstack(gp.predict(Y, xp[si:ei], return_cov=False, return_var=True)).T
+
+        # Ensure predictions are valid.
+        results[f"{model_name}/gp_predictions/theta"][()][:, 0] = np.clip(results[f"{model_name}/gp_predictions/theta"][()][:, 0], 0, 1)
+
 
     # Close file.
     results.close()

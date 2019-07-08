@@ -113,18 +113,21 @@ if __name__ == "__main__":
 
 
 
-    if config.get("check_finite", True):
-        # Only use finite values.
-        for ln in all_label_names:
-            data_mask *= np.isfinite(sources[ln][()])
-    else:
-        logger.warn("Not checking for finite predictors across all models!")
+    # Check for finite values.
+    for ln in all_label_names:
+        data_mask *= np.isfinite(sources[ln][()])
         
     data_indices = np.where(data_mask)[0]
     npm_indices = np.random.choice(data_indices.size, M, replace=False)
     
     # Create results file.
     with h5.File(results_path, "w") as results:
+
+        # Add config.
+        results.attrs.create("config", np.string_(yaml.dump(config)))
+        results.attrs.create("config_path", np.string_(config_path))
+
+        # Add indices.
         g = results.create_group("indices")
         g.create_dataset("data_indices", data=data_indices)
         g.create_dataset("npm_indices", data=npm_indices)
@@ -142,10 +145,10 @@ if __name__ == "__main__":
 
     logger.info(f"Optimization keywords:\n{utils.repr_dict(default_opt_kwds)}")
 
-    default_bounds = dict(bound_theta=[0.5, 1],
-                          bound_mu_single=[0.5, 15],
-                          bound_sigma_single=[0.05, 10],
-                          bound_sigma_multiple=[0.2, 1.6])
+    default_bounds = dict(theta=[0.5, 1],
+                          mu_single=[0.5, 15],
+                          sigma_single=[0.05, 10],
+                          sigma_multiple=[0.2, 1.6])
 
 
     # Plotting
@@ -154,7 +157,7 @@ if __name__ == "__main__":
     os.makedirs(figures_dir, exist_ok=True)
     
     # Sampling.
-    sampling = True # TODO: move this to config.
+    sampling = config.get("sample_mixture_model", False)
 
     if plot_mixture_model_figures:
         if config["multiprocessing"]:
@@ -173,8 +176,11 @@ if __name__ == "__main__":
         logger.info(f"Running model '{model_name}' with config:\n{utils.repr_dict(model_config)}")
 
         bounds = default_bounds.copy()
-        for k, (lower, upper) in model_config["bounds"].items():
-            bounds[f"bound_{k}"] = [lower, upper]
+        bounds.update(model_config["bounds"])
+
+        stan_bounds = dict()
+        for k, (lower, upper) in bounds.items():
+            stan_bounds[f"bound_{k}"] = [lower, upper]
 
         # Set up a KD-tree.
         lns = list(model_config["kdtree_label_names"]) + [model_config["predictor_label_name"]]
@@ -210,13 +216,12 @@ if __name__ == "__main__":
             for ax in axes[:2]:
                 ax.set_aspect(np.ptp(ax.get_xlim())/np.ptp(ax.get_ylim()))
 
+        mu_multiple_scalar = model_config["mu_multiple_scalar"]
+
         # TODO: put scalar to the config file.
-        def optimize_mixture_model(index, inits=None, scalar=5, debug=False):
+        def optimize_mixture_model(index, inits=None, debug=False):
 
             suppress = config.get("suppress_stan_output", True)
-            #print(debug, suppress)
-            #if debug:
-            #    suppress = False
 
             # Select indices and get data.
             d, nearby_idx, meta = npm.query_around_point(kdt, X[index], **kdt_kwds)
@@ -226,7 +231,7 @@ if __name__ == "__main__":
 
             if inits is None:
                 inits = npm._get_1d_initialisation_point(
-                    y, scalar=scalar, bounds=model_config["bounds"])
+                    y, scalar=mu_multiple_scalar, bounds=bounds)
 
             # Update meta dictionary with things about the data.
             meta = dict(max_log_y=np.log(np.max(y)),
@@ -239,8 +244,8 @@ if __name__ == "__main__":
 
             data_dict = dict(y=y,
                              N=y.size,
-                             scalar=scalar)
-            data_dict.update(bounds)
+                             scalar=mu_multiple_scalar)
+            data_dict.update(stan_bounds)
 
             p_opts = []
             ln_probs = []
@@ -248,7 +253,8 @@ if __name__ == "__main__":
 
                 opt_kwds = dict(
                     init=init_dict,
-                    data=data_dict)
+                    data=data_dict,
+                    as_vector=False)
                 opt_kwds.update(default_opt_kwds)
 
                 # Do optimization.
@@ -262,10 +268,13 @@ if __name__ == "__main__":
                                           f" from {init_dict}:")
                     else:
                         if p_opt is not None:
-                            p_opts.append(p_opt)
-                            # TODO : check p_opt is unpcaking correctly.
-                            ln_probs.append(utils.ln_prob(y, 1, *utils._pack_params(**p_opt), bounds=bounds))
+                            p_opts.append(p_opt["par"])
+                            
+                            ln_probs.append(utils.ln_prob(y, 1, *utils._pack_params(**p_opt["par"]), bounds=bounds))
 
+                            assert abs(ln_probs[-1] - p_opt["value"]) < 1e-8
+
+                        
                 try:
                     p_opt
 
@@ -293,19 +302,39 @@ if __name__ == "__main__":
                 p_opt = p_opts[idx]
                 meta["init_idx"] = idx
 
+                """
+                # Calculate uncertainties.
+                op_bounds = ()
+                def nlp(p):
+                    w, mu_s, sigma_s, sigma_m = p
+                    mu_m = np.log(mu_s + mu_multiple_scalar * sigma_s) + sigma_m**2
+
+                    if not (bounds["theta"][1] >= w >= bounds["theta"][0]) \
+                    or not (bounds["mu_single"][1] >= mu_s >= bounds["mu_single"][0]) \
+                    or not (bounds["sigma_multiple"][1] >= sigma_m >= bounds["sigma_multiple"][0]):
+                        return np.inf
+
+                    return -utils.ln_likelihood(y, w, mu_s, sigma_s, mu_m, sigma_m)
+
+
+                op_bounds = [bounds["theta"],
+                             bounds["mu_single"],
+                             bounds["sigma_single"],
+                             bounds["sigma_multiple"],
+                ]
+
+                #x0 = utils._pack_params(**p_opt)
+                x0 = (p_opt["theta"], p_opt["mu_single"], p_opt["sigma_single"], p_opt["sigma_multiple"])
+                p_opt2 = op.minimize(nlp, x0, bounds=op_bounds, method="L-BFGS-B")
+                """
+
+
                 # Create a three-panel figure showing:
 
                 # (1) a log-density of the HRD + the selected ball points
                 # (2) a log-density of colour vs apparent magnitude + the selected ball points
                 # (3) the jitter + fitted parameters 
 
-                '''
-                def plot_binned_statistic(x, y, z, bins=100, function=np.nanmedian,
-                          xlabel=None, ylabel=None, zlabel=None,
-                          ax=None, colorbar=False, figsize=(8, 8),
-                          vmin=None, vmax=None, min_entries_per_bin=None,
-                          subsample=None, mask=None, **kwargs):
-                '''
                 if sampling:
 
                     chains = 2 # TODO: move to config file.
@@ -325,7 +354,6 @@ if __name__ == "__main__":
                                             sigma_single=r"$\sigma_\mathrm{single}$",
                                             mu_multiple=r"$\mu_\mathrm{multiple}$",
                                             sigma_multiple=r"$\sigma_\mathrm{multiple}$")
-
 
                         corner_fig = corner.corner(chains, labels=[latex_labels[k] for k in samples.flatnames])
 
@@ -391,7 +419,9 @@ if __name__ == "__main__":
 
                     fig.tight_layout()
 
+
                     fig.savefig(figure_path, dpi=150)
+
 
                     for item in items_for_deletion:
                         try:
@@ -401,8 +431,6 @@ if __name__ == "__main__":
                             for _ in item:
                                 if hasattr(_, "set_visible"):
                                     _.set_visible(False)
-
-
 
 
                 if debug:
@@ -479,6 +507,8 @@ if __name__ == "__main__":
 
         if not config.get("multiprocessing", False):
             sp_swarm(*npm_indices)
+
+            raise a
 
         else:
             P = config.get("processes", mp.cpu_count())

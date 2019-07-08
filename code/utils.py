@@ -140,7 +140,7 @@ def ln_prior(theta, s_mu, s_sigma, b_mu, b_sigma, bounds=None):
 
 
     # Beta prior on theta.
-    return stats.beta.logpdf(theta, 5, 5)
+    return 0 #stats.beta.logpdf(theta, 5, 5)
 
 
 def ln_prob(y, L, *params, bounds=None):

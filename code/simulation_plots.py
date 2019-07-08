@@ -72,6 +72,10 @@ _get_rv_nb_transits = lambda *_: np.random.randint(3, 30)
 _get_intrinsic_rv_noise = lambda N, *_: 0.1 * np.ones(N)
 
 KPs = np.array(list(itertools.product(Ks, Ps)))
+
+
+
+
 N_simulations = KPs.shape[0]
 
 N_repeats = 1
@@ -196,12 +200,19 @@ N_bins = 50
 #Ks = np.logspace(-0.22, 2.77, N_bins)
 #Ps = np.logspace(-1.27, 5.06, N_bins)
 KPs = np.array(list(itertools.product(Ks, Ps)))
+KPs = np.vstack([
+    10**np.random.uniform(-0.5, 3, size=KPs.shape[0]),
+    10**np.random.uniform(-1.5, 6, size=KPs.shape[0])
+]).T
 
-N_sims_per_bin = 1000
+
+N_sims_per_bin = 1
 
 
 # detection efficiency
 K_diff = np.zeros((KPs.shape[0], N_sims_per_bin))
+K_ests = np.zeros_like(K_diff)
+K_ests_err = np.zeros_like(K_ests)
 K_frac = np.zeros_like(K_diff)
 detection_efficiency = np.zeros((KPs.shape[0], N_sims_per_bin))
 
@@ -224,7 +235,16 @@ for i, (K, P) in enumerate(tqdm(KPs)):
 
         # Calculate the RV jitter.
         # observing_span.to(u.day).value = 668
-        t = np.random.uniform(0, 668, rv_nb_transits_[index])
+        #N = 100
+        N = rv_nb_transits_[index]
+        N = np.random.randint(30, 100)
+        N = 100
+        #N = np.random.randint(5, 30)
+        #N = np.random.randint(3, 15)
+
+        #N = 10
+
+        t = np.random.uniform(0, 668, N)
         v = K * np.sin(2 * np.pi * t / P + varphi)
 
         # Add intrinsic noise to each measurement.
@@ -232,13 +252,27 @@ for i, (K, P) in enumerate(tqdm(KPs)):
         
         # TODO: MAGIC HACK 0.5 is adopted intrinsic error
         #__intrinsic_error = 0
-        #noise = __intrinsic_error * np.random.normal(0, 1, size=v.size)
-        noise = np.random.normal(mu_s, sigma_s, size=v.size)
-        v += np.random.normal(0, 1, size=noise.size) * noise
-        rv_jitter = np.std(v)
+        noise = np.random.normal(mu_s, sigma_s, size=N)
+        v += np.random.normal(0, 1, size=N) * noise
 
-        K_diff[i, j] = (rv_jitter - mu_s) - K
+
+        #rv_jitter = np.std(v)
+        v_mean = np.mean(v)
+        rv_jitter = np.sqrt(np.sum((v - v_mean)**2)/(v.size - 1))
+
+
+        sd_rv_jitter = rv_jitter * np.sqrt(1 - (2/(N-1)) * (special.gamma(N/2)/special.gamma((N-1)/2))**2)
+
+        K_est = np.sqrt(2) * rv_jitter
+        K_ests[i, j] = K_est
+        K_ests_err[i, j] = sd_rv_jitter / np.sqrt(2)
+        #K_diff[i, j] = (K_est - mu_s) - K
+        K_diff[i, j] = (K_est - K)
+
         K_frac[i, j] = K_diff[i, j]/K
+
+        #if K_est > 900:
+        #    raise a
 
         # Calculate the probability this would be a detected as a binary.
         radial_velocity_error = rv_jitter / np.sqrt(rv_nb_transits_[index] * np.pi / 2)
@@ -304,6 +338,44 @@ ax.axhline(20 * np.sqrt(np.median(rv_nb_transits_) * np.pi/2), linestyle=":", **
 ax.scatter(P_sb9, K_sb9, s=10, facecolor="#000000", edgecolor="none", alpha=1)
 ax.set_ylim(Ks[0], Ks[-1])
 ax.set_xlim(Ps[0], Ps[-1])
+
+ok = KPs.T[1] < 668
+
+
+
+fig, ax = plt.subplots()
+ax.scatter(KPs.T[0][ok], np.mean(K_diff[ok], axis=1))
+ax.errorbar(KPs.T[0][ok], np.mean(K_diff[ok], axis=1), yerr=np.mean(K_ests_err[ok], axis=1), fmt="none", zorder=-1)
+
+
+fig, ax = plt.subplots()
+ax.scatter(KPs.T[0][ok], K_ests[ok].T[0], s=5)
+
+ax.errorbar(KPs.T[0][ok], K_ests[ok].T[0], yerr=K_ests_err[ok].T[0], fmt="none", zorder=-1)
+
+
+lims = np.array([ax.get_xlim(), ax.get_ylim()])
+lims = (0.1, np.max(lims))
+ax.plot(lims, lims, c="#666666", zorder=-1, linestyle=":", linewidth=0.5)
+ax.set_xlim(lims)
+ax.set_ylim(lims)
+
+
+
+
+diff = K_diff[ok]
+print(np.mean(K_diff), np.median(K_diff), np.std(K_diff))
+
+Q = K_diff/K_ests_err
+
+from scipy import stats
+
+fig, ax = plt.subplots()
+xi = np.linspace(-3, 3, 100)
+ax.hist(Q[ok].flatten(), bins=xi, normed=True)
+ax.plot(xi, stats.norm.pdf(xi, 0, 1), c="r")
+
+print(np.percentile(Q[ok], [16, 50, 84]))
 
 """
 dr3_baseline = 668 + 3 *365 # total guess

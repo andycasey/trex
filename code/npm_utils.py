@@ -266,7 +266,7 @@ def get_ball_around_point(kdt, point, K=1000, scale=1, offset=0, full_output=Fal
 
 
 
-def _get_1d_initialisation_point(y, scalar=5, bounds=None):
+def _get_1d_initialisation_point(y, scalar, bounds=None):
 
     N= y.size
 

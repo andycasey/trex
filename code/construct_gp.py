@@ -28,12 +28,13 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 
-overwrite = False
+overwrite = True
 
 if __name__ == "__main__":
 
     config_path = sys.argv[1]
 
+    """
     with open(config_path, "r") as fp:
         config = yaml.load(fp, Loader=yaml.Loader)
 
@@ -58,18 +59,30 @@ if __name__ == "__main__":
     data_path = os.path.join(pwd, config["data_path"])
     data = h5.File(data_path, "r")
     sources = data["sources"]
-    
+    """
 
+    
     # Load in the results path.
-    results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
+    #results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
+    results_path = sys.argv[1]
     results_dir = os.path.dirname(results_path)
 
     results = h5.File(results_path, "a")
 
+    config = yaml.load(results.attrs["config"], Loader=yaml.Loader)
+
+    random_seed = int(config["random_seed"])
+    np.random.seed(random_seed)
+
+    # Load data.
+    pwd = os.path.dirname(results.attrs["config_path"]).decode("utf-8")
+    data_path = os.path.join(pwd, config["data_path"])
+    data = h5.File(data_path, "r")
+    sources = data["sources"]
+
     # Prepare for figures
     figures_dir = os.path.join(results_dir, "figures")
     os.makedirs(figures_dir, exist_ok=True)
-
 
     data_indices = results["indices"]["data_indices"][()]
     npm_indices = results["indices"]["npm_indices"][()]
@@ -90,6 +103,10 @@ if __name__ == "__main__":
 
         for j, parameter_name in enumerate(("theta", "mu_single", "sigma_single", "mu_multiple", "sigma_multiple")):
 
+            # Check to see if we should skip mu_multiple
+            # TODO
+            if parameter_name == "mu_multiple": continue
+
             logger.info(f"Running model {model_name}:{parameter_name}")
 
             if parameter_name in results[f"{model_name}/gp"] and not overwrite:
@@ -100,6 +117,8 @@ if __name__ == "__main__":
 
             # Fit a gaussian process model.
             X = np.vstack([sources[ln][()] for ln in lns]).T[data_indices][npm_indices][is_ok]
+
+            # TODO: Optionally do log of the param.
             Y = group[parameter_name][()][is_ok]
 
             # TODO: Only include those that are 'is_ok'?
@@ -170,6 +189,10 @@ if __name__ == "__main__":
 
             # TODO: Store the X, Y used to compute the GP.
             # In principle if we aren't taking a subset of X, Y then we don't need to do this!
+            for _ in "XY":
+                if _ in g:
+                    del g[_]
+            
             g.create_dataset("X", data=X)
             g.create_dataset("Y", data=Y)
 

@@ -1,7 +1,7 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy import spatial
+from scipy import spatial, special
 
 from matplotlib.ticker import MaxNLocator
 from matplotlib import gridspec
@@ -131,7 +131,7 @@ def scatter_period_and_rv_semiamplitude_for_known_binaries(P, K, ratio, P_err=No
 
 
 def scatter_excess_rv_jitter_for_known_binaries(K_catalog, K_est, K_catalog_err=None, K_est_err=None,
-                                                **kwargs):
+                                                log=False, **kwargs):
 
     height_ratio = 5
 
@@ -163,7 +163,10 @@ def scatter_excess_rv_jitter_for_known_binaries(K_catalog, K_est, K_catalog_err=
     ax.set_ylabel(r"$K_\mathrm{est}\,\,/\,\,\mathrm{km\,s}^{-1}$")
 
     lims = np.array([ax.get_xlim(), ax.get_ylim()])
-    lims = (-3, np.max(lims))
+    if log:
+        lims = (np.max([0.5, np.min(lims)]), np.max(lims))
+    else:
+        lims = (-3, np.max(lims))
 
     ax.plot(lims, lims, c="#666666", linestyle=":", zorder=-1, linewidth=0.5)
 
@@ -180,6 +183,9 @@ def scatter_excess_rv_jitter_for_known_binaries(K_catalog, K_est, K_catalog_err=
     ax_diff.set_xticks([])
     ax.xaxis.set_major_locator(MaxNLocator(5))
     ax.yaxis.set_major_locator(MaxNLocator(5))
+
+    if log:
+        ax.loglog()
 
     
     aspect = lambda ax: np.ptp(ax.get_xlim())/np.ptp(ax.get_ylim())
@@ -475,18 +481,18 @@ if __name__ == "__main__":
     def _get_rv_excess(sources, results, **kwargs):
 
         group_name = "rv/gp_predictions"
-        source_ids = results[f"{group_name}/source_id"][()]
-
+        
         indices = results["indices/data_indices"][()]
-        rv_jitter = sources["rv_jitter"][()][indices]
+
+        source_ids = results[f"{group_name}/source_id"][()]
         absolute_g_mag = sources["absolute_g_mag"][()][indices]
 
         model_mu = results[f"{group_name}/mu_single"][()]
         model_sigma = results[f"{group_name}/sigma_single"][()]
-
         
-        K_est = rv_jitter - model_mu[:, 0]
-        K_est_err = np.sqrt(model_sigma[:, 0]**2 + model_mu[:, 1] + model_sigma[:, 1])
+        #K_est = rv_jitter - model_mu[:, 0]
+        #K_est_err = np.sqrt(model_sigma[:, 0]**2 + model_mu[:, 1] + model_sigma[:, 1])
+        K_est, K_est_err = results["rv/gp_predictions/K"][()].T
 
 
         return dict(K_est=K_est,
@@ -526,14 +532,26 @@ if __name__ == "__main__":
         # TODO: Here we are assuming what the RV jitter term is instead of reading
         #       it from the config.
         indices = results["indices/data_indices"][()]
-        rv_jitter = sources["rv_jitter"][()][indices][idx]
+        rv_jitter = sources["j_rv"][()][indices][idx]
 
         ratio = results["model_selection/likelihood/rv/ratio_single"][()][idx]
 
         # Since all of these are binaries, let's just show the excess as is.
-
+        """
         K_est = rv_jitter - model_mu[:, 0]
         e_K_est = np.sqrt(model_sigma[:, 0]**2 + model_mu[:, 1] + model_sigma[:, 1])
+        """
+
+        """
+        K_est = np.sqrt(2) * rv_jitter - model_mu[:, 0]
+        
+        # Add formal errors.
+        rv_nb_transits = sources["rv_nb_transits"][()][indices][idx]
+        N = rv_nb_transits
+        e_K_est = rv_jitter / np.sqrt(2) * np.sqrt(1 - (2/(N-1)) * (special.gamma(N/2)/special.gamma((N-1)/2))**2)
+        """
+
+        K_est, e_K_est = results["rv/gp_predictions/K"][()][idx].T
 
         kwds = dict(apw_K=apw_K,
                     e_apw_K=e_apw_K,
@@ -572,6 +590,14 @@ if __name__ == "__main__":
 
         sb9_K1 = sb9_catalog["K1"][sb9_idx]
         e_sb9_K1 = sb9_catalog["e_K1"][sb9_idx]
+        rv_nb_transits = sb9_catalog["rv_nb_transits"][sb9_idx]
+
+        #ok = (rv_nb_transits > 10) * (sb9_catalog["e"][sb9_idx] < 0.10) * (sb9_catalog["Per"][sb9_idx] < 668)
+        #idx, sb9_idx = (idx[ok], sb9_idx[ok])
+        #sb9_K1 = sb9_catalog["K1"][sb9_idx]
+        #e_sb9_K1 = sb9_catalog["e_K1"][sb9_idx]
+        #rv_nb_transits = sb9_catalog["rv_nb_transits"][sb9_idx]
+
 
         # Calculate the RV excess from our model.
 
@@ -582,15 +608,39 @@ if __name__ == "__main__":
         # TODO: Here we are assuming what the RV jitter term is instead of reading
         #       it from the config.
         indices = results["indices/data_indices"][()]
-        rv_jitter = sources["rv_jitter"][()][indices][idx]
+        rv_jitter = sources["j_rv"][()][indices][idx]
         rv_nb_transits = sources["rv_nb_transits"][()][indices][idx]
 
         ratio = results["model_selection/likelihood/rv/ratio_single"][()][idx]
 
         # Since all of these are binaries, let's just show the excess as is.
+        K_est, e_K_est = results["rv/gp_predictions/K"][()][idx].T
 
-        K_est = (rv_jitter - model_mu[:, 0]) #/ np.sqrt(0.5 * np.pi * rv_nb_transits)
-        e_K_est = np.sqrt(model_sigma[:, 0]**2 + model_mu[:, 1] + model_sigma[:, 1])
+
+        """
+        # rv_jitter is the standard deviation among measurements.
+        # (Unbiased estimator (see p6 of Katz et al)
+
+        # K ~= sqrt(2) * std_dev(v)
+
+        #K_est = (rv_jitter - model_mu[:, 0]) #/ np.sqrt(0.5 * np.pi * rv_nb_transits)
+        
+        K_est = np.sqrt(2) * rv_jitter - model_mu[:, 0] # 1.97 / 1.50
+        
+        # Add formal errors.
+        N = rv_nb_transits
+        e_K_est = rv_jitter * np.sqrt(1 - (2/(N-1)) * (special.gamma(N/2)/special.gamma((N-1)/2))**2)
+
+        #K_est = np.sqrt(np.pi/2) * rv_jitter#/np.sqrt(rv_nb_transits)
+        #K_est = rv_jitter - model_mu[:, 0]
+        #e_K_est = np.sqrt(model_sigma[:, 0]**2 + model_mu[:, 1] + model_sigma[:, 1])
+
+        #diff = diff[ok]
+        """
+        diff = sb9_K1 - K_est
+        
+        print(f"Diff mean: {np.mean(diff):.2f} median: {np.median(diff):.2f}")
+
 
         kwds = dict(sb9_K1=sb9_K1,
                     e_sb9_K1=e_sb9_K1,
@@ -599,6 +649,7 @@ if __name__ == "__main__":
                     sb9_P=sb9_catalog["Per"][sb9_idx],
                     e_sb9_P=sb9_catalog["e_Per"][sb9_idx],
                     ratio=ratio,
+                    rv_nb_transits=rv_nb_transits,
                     sb9_catalog=sb9_catalog[sb9_idx],
                     sb9_e=sb9_catalog["e"][sb9_idx])
 
@@ -709,19 +760,51 @@ if __name__ == "__main__":
 
 
 
-    # Plot the distributions of jitter for comparable catalogs of single stars and binaries.
-    kwds = _xm_literature_single_stars_and_binaries(sb9_catalog, soubiran_catalog)
-    kwds.update(color=["#000000", "#BBBBBB"])
-    fig = hist_literature_single_stars_and_binaries(**kwds)
-    savefig(fig, "hist-literature-single-stars-and-binaries")
 
 
+    # Plot radial velocity semi-amplitude against our estimate for binary systems in the SB9 catalog.    
+    sb9_path = os.path.join(pwd, "data/catalogs/sb9-xm-gaia.fits")
+    sb9_catalog = Table.read(sb9_path)
 
-    # Plot radial velocity semi-amplitude against our estimate for binary systems from APW
+    sb9_kwds = _get_rv_excess_for_sb9(sources, results, sb9_catalog, use_sb9_mask=True)
+
     apw_path = os.path.join(pwd, "data/catalogs/apw-highK-unimodal-xm-gaia.fits")
     apw_catalog = Table.read(apw_path)
 
     apw_kwds = _get_rv_excess_for_apw(sources, results, apw_catalog, use_apw_mask=True)
+
+
+    fig = scatter_excess_rv_jitter_for_known_binaries(K_catalog=sb9_kwds["sb9_K1"],
+                                                      K_catalog_err=sb9_kwds["e_sb9_K1"],
+                                                      K_est=sb9_kwds["K_est"],
+                                                      K_est_err=sb9_kwds["e_K_est"],
+                                                      scatter_kwds=dict(c=sb9_kwds["sb9_e"], vmin=0, vmax=1, cmap="magma"),
+                                                      colorbar=True, log=True)
+    savefig(fig, "scatter-excess-rv-jitter-for-known-binaries-sb9")
+
+    fig = scatter_excess_rv_jitter_for_known_binaries(K_catalog=apw_kwds["apw_K"],
+                                                      K_catalog_err=apw_kwds["e_apw_K"],
+                                                      K_est=apw_kwds["K_est"],
+                                                      K_est_err=apw_kwds["e_K_est"],
+                                                      scatter_kwds=dict(c=apw_kwds["apw_e"], vmin=0, vmax=1, cmap="magma"),
+                                                      log=True)
+    savefig(fig, "scatter-excess-rv-jitter-for-known-binaries-apw")
+
+
+    
+
+
+
+
+    # Plot radial velocity semi-amplitude against our estimate for binary systems from APW
+    fig = scatter_period_and_rv_semiamplitude_for_known_binaries(P=sb9_kwds["sb9_P"],
+                                                                 K=sb9_kwds["sb9_K1"],
+                                                                 ratio=sb9_kwds["ratio"],
+                                                                 P_err=sb9_kwds["e_sb9_P"],
+                                                                 K_err=sb9_kwds["e_sb9_K1"])
+    savefig(fig, "scatter-period-and-rv-semiamplitude-for-known-binaries-sb9")
+
+
     fig = scatter_period_and_rv_semiamplitude_for_known_binaries(P=apw_kwds["apw_P"],
                                                                  K=apw_kwds["apw_K"],
                                                                  ratio=apw_kwds["ratio"],
@@ -730,36 +813,12 @@ if __name__ == "__main__":
     savefig(fig, "scatter-period-and-rv-semiamplitude-for-known-binaries-apw")
 
 
-    fig = scatter_excess_rv_jitter_for_known_binaries(K_catalog=apw_kwds["apw_K"],
-                                                      K_catalog_err=apw_kwds["e_apw_K"],
-                                                      K_est=apw_kwds["K_est"],
-                                                      K_est_err=apw_kwds["e_K_est"],
-                                                      scatter_kwds=dict(c=apw_kwds["apw_e"], vmin=0, vmax=1, cmap="magma"))
-    savefig(fig, "scatter-excess-rv-jitter-for-known-binaries-apw")
+    # Plot the distributions of jitter for comparable catalogs of single stars and binaries.
+    kwds = _xm_literature_single_stars_and_binaries(sb9_catalog, soubiran_catalog)
+    kwds.update(color=["#000000", "#BBBBBB"])
+    fig = hist_literature_single_stars_and_binaries(**kwds)
+    savefig(fig, "hist-literature-single-stars-and-binaries")
 
-
-
-    # Plot radial velocity semi-amplitude against our estimate for binary systems in the SB9 catalog.    
-    sb9_path = os.path.join(pwd, "data/catalogs/sb9-xm-gaia.fits")
-    sb9_catalog = Table.read(sb9_path)
-
-    sb9_kwds = _get_rv_excess_for_sb9(sources, results, sb9_catalog)
-
-
-    fig = scatter_period_and_rv_semiamplitude_for_known_binaries(P=sb9_kwds["sb9_P"],
-                                                                 K=sb9_kwds["sb9_K1"],
-                                                                 ratio=sb9_kwds["ratio"],
-                                                                 P_err=sb9_kwds["e_sb9_P"],
-                                                                 K_err=sb9_kwds["e_sb9_K1"])
-    savefig(fig, "scatter-period-and-rv-semiamplitude-for-known-binaries-sb9")
-
-    fig = scatter_excess_rv_jitter_for_known_binaries(K_catalog=sb9_kwds["sb9_K1"],
-                                                      K_catalog_err=sb9_kwds["e_sb9_K1"],
-                                                      K_est=sb9_kwds["K_est"],
-                                                      K_est_err=sb9_kwds["e_K_est"],
-                                                      scatter_kwds=dict(c=sb9_kwds["sb9_e"], vmin=0, vmax=1, cmap="magma"),
-                                                      colorbar=True)
-    savefig(fig, "scatter-excess-rv-jitter-for-known-binaries-sb9")
 
 
     # Now joint (SB9 + APW)
@@ -805,7 +864,7 @@ if __name__ == "__main__":
                        subsample=None,
                        cmap="magma")
 
-    for function in ("mean", "median"):
+    for function in ("mean", ):#"median"):
 
         # Plot RV binned
         kwds = _get_binned_posterior_probability_data(sources, results, "rv", band="g")
@@ -838,15 +897,14 @@ if __name__ == "__main__":
 
         # TODO: make same but put all three on one figure.
 
+        # Do it again for just the main-sequence.
+        ms_common_kwds = common_kwds.copy()
+        ms_common_kwds.update(bins=150)
 
-    common_kwds.update(bins=150)
-
-    # Do it again for just the main-sequence.
-    for function in ("mean", "median"):
 
         # Plot RV binned
         kwds = _get_binned_posterior_probability_data(sources, results, "rv", band="g")
-        kwds.update(common_kwds)
+        kwds.update(ms_common_kwds)
         kwds.update(mask=mainsequence_mask(kwds), function=function)
         
         # TODO: put colorbar on
@@ -856,7 +914,7 @@ if __name__ == "__main__":
 
         # Plot ast
         kwds = _get_binned_posterior_probability_data(sources, results, "ast", band="g")
-        kwds.update(common_kwds)
+        kwds.update(ms_common_kwds)
         kwds.update(mask=mainsequence_mask(kwds), function=function)
 
         # TODO: put colorbar on
@@ -866,7 +924,7 @@ if __name__ == "__main__":
 
         # Plot ast
         kwds = _get_binned_posterior_probability_data(sources, results, "joint", band="g")
-        kwds.update(common_kwds)
+        kwds.update(ms_common_kwds)
         kwds.update(mask=mainsequence_mask(kwds), function=function)
 
         # TODO: put colorbar on
@@ -875,9 +933,6 @@ if __name__ == "__main__":
 
         # TODO: make same but put all three on one figure.
 
-
-
-    for function in ("mean", "median"):
 
         # Plot the typical prediction from the GP across the parameters of interest.
         common_gp_expectation_kwds = dict(function=function,

@@ -1,16 +1,18 @@
 data_path: data/sources.hdf5
-model_path: code/nlnmm.stan
+model_path: code/nlnmm-fixed.stan
 results_path: results/{unique_hash}/results.hdf5
 
 multiprocessing: true
-processes: 20
+processes: 50
 check_finite: true
 suppress_stan_output: true
 random_seed: 0
-number_of_sources_for_gaussian_process: 1000
+number_of_sources_for_gaussian_process: 100
 number_of_probability_draws: 100
 
+sample_mixture_model: false
 plot_mixture_model_figures: false
+
 ignore_keywords_when_creating_hash:
   - ignore_keywords_when_creating_hash
   - plot_mixture_model_figures
@@ -34,11 +36,12 @@ models:
     kdtree_relative_scales: [0.05, 0.5, 0.5]
     predictor_label_name: j_rv
     bounds:
-      theta: [0.5, 1.1]
+      theta: [0.5, 1]
       mu_single: [0.05, 15]
       sigma_single: [0.025, 5]
       sigma_multiple: [0.2, 1.6]
-    tol_sum_sigma: 10
+    mu_multiple_scalar: 3
+    tol_sum_sigma: 1000
     tol_proximity: 0.01
   ast:
     kdtree_label_names: [bp_rp, absolute_g_mag, phot_g_mean_mag]
@@ -53,7 +56,8 @@ models:
       mu_single: [0.5, 5]
       sigma_single: [0.025, 1]
       sigma_multiple: [0.1, 2]
-    tol_sum_sigma: 10
+    mu_multiple_scalar: 3
+    tol_sum_sigma: 1000
     tol_proximity: 0.01
 
 gp_initial_guesses:
@@ -69,25 +73,3 @@ gp_initial_guesses:
     sigma_single: [0.6010562, -7.78274635, -2.40511388,  1.85969737,  3.69525254]
     mu_multiple: [0.1869771, -3.65507317, -2.80520958,  0.95649974,  1.1112062 ]
     sigma_multiple: [0.47922389, -6.8655726 , -2.76490369,  0.81800791,  0.83875105]
-
-
-
-gaia_archive_adql_calibration_query: >
-  SELECT *,
-         phot_g_mean_mag + 5 * log10(parallax/100) 
-            AS absolute_g_mag,
-         phot_bp_mean_mag + 5 * log10(parallax/100) 
-            AS absolute_bp_mag,
-         phot_rp_mean_mag + 5 * log10(parallax/100) 
-            AS absolute_rp_mag,
-         sqrt(astrometric_chi2_al/(astrometric_n_good_obs_al - 5)) 
-            AS ruwe,
-         sqrt(rv_nb_transits * 3.14/2 * power(radial_velocity_error, 2)) 
-            AS rv_jitter
-  FROM  gaiadr2.gaia_source
-  WHERE duplicated_source = 'false'
-    AND radial_velocity > -9999
-    AND bp_rp > -9999
-    AND phot_g_mean_mag < 13
-    AND parallax > 0
-    AND parallax_over_error > 5
