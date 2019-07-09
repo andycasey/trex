@@ -50,9 +50,8 @@ np.random.seed(0)
 # i = 45
 # i = 90
 
-APPROXIMATIONS = []
 
-def approx_astrometric_excess_noise(P, m1, m2, f1=None, f2=None, **kwargs):
+def approx_astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, **kwargs):
 
     if f1 is None:
         # Assume M-to-L index of 3.5 for main-sequence stars
@@ -73,14 +72,11 @@ def approx_astrometric_excess_noise(P, m1, m2, f1=None, f2=None, **kwargs):
     w1, w2 = (w[0], w[1])
 
     # TODO: replace this with integral!
-    N = 1001
-    frac = np.clip((668 * u.day)/P, 0, 1).value
+    phi = 2 * np.pi * t / P
+    N = phi.size
 
-    t = np.linspace(0, 2 * np.pi *frac, N)
-    #g = 2 * np.pi * t /
-
-    dx = a1 * w1 * np.cos(t) + a2 * w2 * np.cos(t + np.pi)
-    dy = a1 * w1 * np.sin(t) + a2 * w2 * np.sin(t + np.pi)
+    dx = a1 * w1 * np.cos(phi) + a2 * w2 * np.cos(phi + np.pi)
+    dy = a1 * w1 * np.sin(phi) + a2 * w2 * np.sin(phi + np.pi)
 
     approx_rms_in_au = np.sqrt(np.sum((dx - np.mean(dx))**2 + (dy - np.mean(dy))**2)/N).value
     approx_rms_in_mas = (approx_rms_in_au * u.au / (10 * u.pc)).to(u.mas, equivalencies=u.dimensionless_angles())
@@ -88,12 +84,8 @@ def approx_astrometric_excess_noise(P, m1, m2, f1=None, f2=None, **kwargs):
     return approx_rms_in_mas
 
 
+def actual_astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, **kwargs):
     
-
-def astrometric_excess_noise(t, P=1*u.yr, m1=1.0*u.solMass, m2=2.0*u.solMass, 
-                             omega=0.0*u.deg, i=0*u.deg, f1=None, f2=None,
-                             origin=None, full_output=False, **kwargs):
-
     if f1 is None:
         # Assume M-to-L index of 3.5 for main-sequence stars
         f1 = m1.to(u.solMass).value**3.5
@@ -126,161 +118,14 @@ def astrometric_excess_noise(t, P=1*u.yr, m1=1.0*u.solMass, m2=2.0*u.solMass,
     rms = np.sqrt(np.sum((photocenters.T - np.mean(photocenters, axis=1))**2)/t.size)
     rms_in_mas = (rms * u.deg).to(u.mas)
 
+    return rms_in_mas
 
-    p_op = primary_orbit.orbital_plane(t)
-    s_op = secondary_orbit.orbital_plane(t)
-
-    ph_x = w @ np.array([p_op.x, s_op.x])
-    ph_y = w @ np.array([p_op.y, s_op.y])
-
-    ph = np.vstack([ph_x, ph_y])
-
-    rms_in_au = np.sqrt(np.sum((ph.T - np.mean(ph, axis=1))**2)/t.size)
-
-
-
-    # APPROXIMATIONS START.
-
-
-    m_total = m1 + m2
-    w = np.atleast_2d([f1, f2])/(f1 + f2)
-    a = twobody.P_m_to_a(P, m_total).to(u.AU).value
-
-    a1 = m2 * a / m_total
-    a2 = m1 * a / m_total
-
-    w1, w2 = (w[0][0], w[0][1])
-
-    # TODO: replace this with integral!
-    N = 1001
-    t = np.linspace(0, 2 * np.pi, N)
-
-    dx = a1 * w1 * np.cos(t) + a2 * w2 * np.cos(t + np.pi)
-    dy = a1 * w1 * np.sin(t) + a2 * w2 * np.sin(t + np.pi)
-
-    approx_rms_in_au = np.sqrt(np.sum((dx - np.mean(dx))**2 + (dy - np.mean(dy))**2)/N).value
-    approx_rms_in_mas = (approx_rms_in_au * u.au / origin.distance).to(u.mas, equivalencies=u.dimensionless_angles())
-
-    #print(rms_mas, rms)
-    print("check", rms_in_au, approx_rms_in_au)
-    print("check2", rms_in_mas, approx_rms_in_mas)
-
-
-    # TODO: Use t and omega, or some fractional sampling of period.
-    N = 1001
-    theta = np.linspace(0, 2*np.pi, N)
-
-    x_p = a1 * np.cos(theta)
-    y_p = a1 * np.sin(theta)
-
-    x_s = a2 * np.cos(theta + np.pi)
-    y_s = a2 * np.sin(theta + np.pi)
-
-    x = np.array([x_p, x_s])
-    y = np.array([y_p, y_s])
-
-    xpc = (w @ x)
-    ypc = (w @ y)
-
-
-    pos = np.vstack([xpc[0], ypc[0]])
-
-
-    # rms in AU
-    fig, axes = plt.subplots(1, 2, figsize=(9, 4.5))
-    ax = axes[0]
-    ax.scatter(ph[0], ph[1], c="k", s=1)
-    ax.scatter(p_op.x, p_op.y, c="tab:blue")
-    ax.scatter(s_op.x, s_op.y, c="tab:red")
-
-    ax.scatter(p_op.x[[0]], p_op.y[[0]], c="tab:blue", s=100)
-    ax.scatter(s_op.x[[0]], s_op.y[[0]], c="tab:red", s=100)
-
-    ax = axes[1]
-    ax.scatter(x_p, y_p, c="tab:blue")
-    ax.scatter(x_s, y_s, c="tab:red")
-
-    ax.scatter(x_p[[0]], y_p[[0]], c="tab:blue", s=100)
-    ax.scatter(x_s[[0]], y_s[[0]], c="tab:red", s=100)
-
-    ax.scatter(xpc, ypc, c="k", s=1)
-
-
-    fig, ax = plt.subplots()
-    xp, yp = (primary_icrs.ra, primary_icrs.dec)
-
-    ax.scatter(xp, yp, c="tab:blue", s=1)
-
-    xs, ys = (secondary_icrs.ra, secondary_icrs.dec)
-    ax.scatter(xs, ys, c="tab:red", s=1)
-
-    xpc, ypc = photocenters
-    ax.scatter(xpc, ypc, c="#000000", s=1, alpha=0.5)
-
-    def lims(vals, space=1e-5):
-        v = np.hstack(vals).flatten()
-        lims = (np.min(v), np.max(v))
-        return (lims[0] - space, lims[1] + space)
-
-    ax.set_xlim(lims([xs, xp]))
-    ax.set_ylim(lims([ys, yp]))
-
-    # Fit a line to the photocenter?
-    line = lambda x, m, b: m*x + b
-    p_opt, p_cov = op.curve_fit(line, xpc, ypc)
-
-    xi = np.array(ax.get_xlim())
-    ax.plot(xi, line(xi, *p_opt), c="g")
-
-    ax.scatter(pos[0], pos[1], c="g", alpha=0.5)
-
-
-    rms_in_parsec = (rms_in_au * u.au).to(u.pc)
-    approx_rms_in_parsec = (approx_rms_in_au * u.au).to(u.pc)
-
-    approx_rms_in_mas = ((1/rms_in_parsec) / (100 * 100)).value * u.mas
-
-
-    #raise a
-
-    
-    APPROXIMATIONS.append([
-        rms_in_au,
-        approx_rms_in_au,
-        rms_in_mas,
-        approx_rms_in_mas,
-        P.to(u.day).value, 
-        m1.to(u.solMass).value, 
-        m2.to(u.solMass).value
-    ])
-
-
-    if (rms_in_mas - approx_rms_in_mas) > 1 * u.mas:
-        raise a
-
-
-
-
-    if not full_output:
-        return rms
-    
-    return (rms, dict(barycenter=barycenter,
-                      elements=elements,
-                      primary_orbit=primary_orbit,
-                      secondary_orbit=secondary_orbit,
-                      primary_icrs=primary_icrs,
-                      secondary_icrs=secondary_icrs,
-                      photocenters=photocenters))
 
 # From https://www.cosmos.esa.int/web/gaia/dr2
 obs_start = Time('2014-07-25T10:30')
 obs_end = Time('2016-05-23T11:35')
 
-
-
-astrometric_n_good_obs_al = lambda **_: 226
-
-
+astrometric_n_good_obs_al = lambda **_: 250
 
 # Put the sky position something where it will not wrap...
 kwds = dict(i=0 * u.deg,
@@ -293,92 +138,8 @@ kwds = dict(i=0 * u.deg,
                               radial_velocity=0 * u.km/u.s))
 
 
-# Two extreme cases.
-
-#N_repeats = 1
-#Ms = salpeter_imf(N_repeats, 2.35, 0.1, 100) * u.solMass
 
 
-
-# Sanity check.
-sane = True
-if not sane:
-
-    np.random.seed(0)
-
-    N = astrometric_n_good_obs_al()
-    N = 100
-    t = obs_start + np.random.uniform(size=N) * (obs_end - obs_start)
-    t = obs_start + np.linspace(0, 1, N) * (obs_end - obs_start)
-
-    kwds_ = kwds.copy()
-    kwds_.update(P=668 * u.day, m1=1.5 * u.solMass, m2=0.5 * u.solMass, t=t,
-                 full_output=True)
-
-    rms, meta = astrometric_excess_noise(**kwds_)
-
-    pc = meta["photocenters"]
-    fig, ax = plt.subplots()
-    x = (pc[0] - np.mean(pc[0])) * 10**7
-    y = (pc[1] - np.mean(pc[1])) * 10**7
-    scat = ax.scatter(x, y, c=t.mjd)
-
-    cbar = plt.colorbar(scat)
-
-    fig, ax = plt.subplots()
-    scale = lambda _: (_ - np.mean(_)) * 10**7
-    scale = lambda _: _
-    xp, yp = (scale(meta["primary_icrs"].ra), scale(meta["primary_icrs"].dec))
-
-    ax.scatter(xp, yp, c="tab:blue", s=1)
-
-    xs, ys = scale(meta["secondary_icrs"].ra), scale(meta["secondary_icrs"].dec)
-    ax.scatter(xs, ys, c="tab:red", s=1)
-
-    xpc, ypc = meta["photocenters"]
-    ax.scatter(xpc, ypc, c="#000000", s=1, alpha=0.5)
-
-    def lims(vals, space=1e-7):
-        v = np.hstack(vals).flatten()
-        lims = (np.min(v), np.max(v))
-        return (lims[0] - space, lims[1] + space)
-
-    ax.set_xlim(lims([xs, xp]))
-    ax.set_ylim(lims([ys, yp]))
-
-    # Fit a line to the photocenter?
-    line = lambda x, m, b: m*x + b
-    p_opt, p_cov = op.curve_fit(line, xpc, ypc)
-
-    xi = np.array(ax.get_xlim())
-    ax.plot(xi, line(xi, *p_opt), c="g")
-
-    R = rms.to(u.deg).value
-    theta_i = np.linspace(0, 2*np.pi, 1000)
-    xi = kwds["origin"].ra.deg + R * np.cos(theta_i)
-    yi = kwds["origin"].dec.deg + R * np.sin(theta_i)
-
-    ax.scatter(xi, yi, facecolor="g", s=1, alpha=0.5)
-
-    raise a
-
-
-"""
-def Chabrier2003_imf(m):
-    a = 0.0686
-    b = 1.1024
-    c = 0.9522
-    d = 0.0192
-
-    m = np.atleast_1d(m)
-    _ = m < 1
-
-    imf = np.zeros_like(m)
-    imf[_] = (a/m[_]) * np.exp(-(np.log10(m[_]) + b)**2/c)
-    imf[~_] = d * m[~_]**-2.3
-
-    return imf
-"""
 def salpeter_imf(N, alpha, M_min, M_max):
     log_M_limits = np.log([M_min, M_max])
 
@@ -401,15 +162,15 @@ N_repeats = 10
 Ms = salpeter_imf(N_repeats, 2.35, 0.1, 100) * u.solMass
 
 
-
-
 q_bins, P_bins = (20, 20)
 Ps = np.logspace(-1.5, 4, P_bins)
 qs = np.linspace(0.1, 1, q_bins)
 
 
 qPs = np.array(list(itertools.product(qs, Ps)))
-predicted_aen = np.zeros((qPs.shape[0], N_repeats), dtype=float)
+approx_aen = np.zeros((qPs.shape[0], N_repeats), dtype=float)
+actual_aen = np.zeros((qPs.shape[0], N_repeats), dtype=float)
+
 
 for i, (q, P) in enumerate(tqdm(qPs)):
 
@@ -429,7 +190,17 @@ for i, (q, P) in enumerate(tqdm(qPs)):
 
         predicted_aen[i, j] = astrometric_excess_noise(**sim_kwds).to(u.mas).value
         """
-        predicted_aen[i, j] = approx_astrometric_excess_noise(P * u.day, m1, q * m1).to(u.mas).value
+        N = astrometric_n_good_obs_al()
+        t = obs_start + np.random.uniform(size=N) * (obs_end - obs_start)
+
+        m2 = q * m1
+
+        sim_kwds = kwds.copy()
+        sim_kwds.update(t=t, P=P * u.day, m1=m1, m2=m2)
+
+        approx_aen[i, j] = approx_astrometric_excess_noise(**sim_kwds).to(u.mas).value
+        actual_aen[i, j] = actual_astrometric_excess_noise(**sim_kwds).to(u.mas).value
+
 
 
 
