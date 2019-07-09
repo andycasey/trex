@@ -28,7 +28,7 @@ sb9 = Table.read("../data/catalogs/sb9-pourbaix-et-al-orbits.fits")
 K_sb9 = np.array(sb9["K1"]) # km/s
 P_sb9 = np.array(sb9["Per"]) # days
 
-keep = np.isfinite(K_sb9 * P_sb9) * (K_sb9 > 0.5)
+keep = np.isfinite(K_sb9 * P_sb9) #* (K_sb9 > 0.5)
 
 K_sb9, P_sb9 = (K_sb9[keep], P_sb9[keep])
 
@@ -78,7 +78,7 @@ KPs = np.array(list(itertools.product(Ks, Ps)))
 
 N_simulations = KPs.shape[0]
 
-N_repeats = 1
+N_repeats = 10
 
 v_stds = np.zeros((N_simulations, N_repeats))
 
@@ -199,14 +199,14 @@ N_bins = 50
 
 #Ks = np.logspace(-0.22, 2.77, N_bins)
 #Ps = np.logspace(-1.27, 5.06, N_bins)
-KPs = np.array(list(itertools.product(Ks, Ps)))
-KPs = np.vstack([
-    10**np.random.uniform(-0.5, 3, size=KPs.shape[0]),
-    10**np.random.uniform(-1.5, 6, size=KPs.shape[0])
-]).T
+#KPs = np.array(list(itertools.product(Ks, Ps)))
+#KPs = np.vstack([
+#    10**np.random.uniform(-0.5, 3, size=KPs.shape[0]),
+#    10**np.random.uniform(-1.5, 6, size=KPs.shape[0])
+#]).T
 
 
-N_sims_per_bin = 1
+N_sims_per_bin = 100
 
 
 # detection efficiency
@@ -237,8 +237,7 @@ for i, (K, P) in enumerate(tqdm(KPs)):
         # observing_span.to(u.day).value = 668
         #N = 100
         N = rv_nb_transits_[index]
-        N = np.random.randint(30, 100)
-        N = 100
+        #N = np.random.randint(30, 100)
         #N = np.random.randint(5, 30)
         #N = np.random.randint(3, 15)
 
@@ -281,6 +280,8 @@ for i, (K, P) in enumerate(tqdm(KPs)):
             detection_efficiency[i, j] = 0
 
         else:
+            detection_efficiency[i, j] = 1
+
             # Take mean likelihood value.
             w = np.clip(w_[index], 0, 1)
             mu_m, sigma_m = (mu_m_[index], np.abs(sigma_m_[index]))
