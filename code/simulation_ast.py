@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from astropy.time import Time
 from astropy import (coordinates as coord, units as u)
+from astropy.coordinates.matrix_utilities import (matrix_product, rotation_matrix)
 from tqdm import tqdm
 from scipy import (optimize as op)
 from astropy import constants
@@ -50,16 +51,10 @@ np.random.seed(0)
 # i = 45
 # i = 90
 
+DISTANCE = 100 * u.pc
 
-def approx_astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, **kwargs):
 
-    if f1 is None:
-        # Assume M-to-L index of 3.5 for main-sequence stars
-        f1 = m1.to(u.solMass).value**3.5
-
-    if f2 is None:
-        # Assume M-to-L index of 3.5 for main-sequence stars
-        f2 = m2.to(u.solMass).value**3.5
+def approx_astrometric_excess_noise(t, P, m1, m2, f1, f2, **kwargs):
 
 
     m_total = m1 + m2
@@ -72,28 +67,185 @@ def approx_astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, **kwargs):
     w1, w2 = (w[0], w[1])
 
     # TODO: replace this with integral!
-    phi = 2 * np.pi * t / P
+    phi = (2 * np.pi * t / P).value
     N = phi.size
 
     dx = a1 * w1 * np.cos(phi) + a2 * w2 * np.cos(phi + np.pi)
     dy = a1 * w1 * np.sin(phi) + a2 * w2 * np.sin(phi + np.pi)
 
-    approx_rms_in_au = np.sqrt(np.sum((dx - np.mean(dx))**2 + (dy - np.mean(dy))**2)/N).value
-    approx_rms_in_mas = (approx_rms_in_au * u.au / (10 * u.pc)).to(u.mas, equivalencies=u.dimensionless_angles())
+    rms_in_au = np.sqrt(np.sum((dx - np.mean(dx))**2 + (dy - np.mean(dy))**2)/N).value
+    rms_in_mas = (rms_in_au * u.au / DISTANCE).to(u.mas, equivalencies=u.dimensionless_angles())
 
-    return approx_rms_in_mas
+    meta = dict(weights=w,
+                a=a,
+                a1=a1,
+                a2=a2,
+                w1=w1,
+                w2=w2,
+                phi=phi,
+                dx=dx,
+                dy=dy,
+                rms_in_au=rms_in_au)
 
 
-def actual_astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, **kwargs):
-    
+    return (rms_in_mas, meta)
+
+
+def astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, e=0, t0=None,
+                             omega=0*u.deg, i=0*u.deg, Omega=0*u.deg, 
+                             origin=None, **kwargs):
+
     if f1 is None:
-        # Assume M-to-L index of 3.5 for main-sequence stars
         f1 = m1.to(u.solMass).value**3.5
-
     if f2 is None:
-        # Assume M-to-L index of 3.5 for main-sequence stars
         f2 = m2.to(u.solMass).value**3.5
 
+    if t0 is None:
+        t0 = Time('J2015.5')
+
+    N = t.size
+    
+    # Compute orbital positions.
+    with u.set_enabled_equivalencies(u.dimensionless_angles()):
+        M1 = (2*np.pi * (t.tcb - t0.tcb) / P).to(u.radian)
+        # Set secondary to have Omega = 180 deg.
+        M2 = (2*np.pi * (t.tcb - t0.tcb) / P - np.pi).to(u.radian)
+        
+    # eccentric anomaly
+    E1 = twobody.eccentric_anomaly_from_mean_anomaly(M1, e)
+    E2 = twobody.eccentric_anomaly_from_mean_anomaly(M2, e)
+
+    # mean anomaly
+    F1 = twobody.true_anomaly_from_eccentric_anomaly(E1, e)
+    F2 = twobody.true_anomaly_from_eccentric_anomaly(E2, e)
+
+    # Calc a1/a2.
+    m_total = m1 + m2
+    a = twobody.P_m_to_a(P, m_total)
+    a1 = m2 * a / m_total
+    a2 = m1 * a / m_total
+
+    r1 = (a1 * (1. - e * np.cos(E1))).to(u.au).value
+    r2 = (a2 * (1. - e * np.cos(E2))).to(u.au).value
+
+    # Calculate xy positions in orbital plane.
+    x = np.vstack([
+        r1 * np.cos(F1),
+        r2 * np.cos(F2),
+    ]).value
+    y = np.vstack([
+        r1 * np.sin(F1),
+        r2 * np.sin(F2)
+    ]).value
+
+    # Calculate photocenter in orbital plane.
+    w = np.atleast_2d([f1, f2])/(f1 + f2)
+    x, y = np.vstack([w @ x, w @ y])
+    z = np.zeros_like(x)
+
+    # Calculate photocenter velocities in orbital plane (necessary to take barycentric motion into
+    # account).
+    fac = (2*np.pi * a / P / np.sqrt(1 - e**2)).to(u.au/u.s).value
+    vx = np.vstack([
+        -fac * np.sin(F1),
+        -fac * np.sin(F2)
+    ]).value
+    vy = np.vstack([
+        fac * (np.cos(F1) + e),
+        fac * (np.cos(F2) + e)
+    ]).value
+    vx, vy = np.vstack([w @ vx, w @ vy])
+    vz = np.zeros_like(vx)
+
+    # TODO: handle units better w/ dot product
+    x, y, z = (x * u.au, y * u.au, z * u.au)
+    vx, vy, vz = (vx * u.au/u.s, vy * u.au/u.s, vz * u.au/u.s)
+    
+    xyz = coord.CartesianRepresentation(x=x, y=y, z=z)
+    vxyz = coord.CartesianDifferential(d_x=vx, d_y=vy, d_z=vz)
+    xyz = xyz.with_differentials(vxyz)
+
+    vxyz = xyz.differentials["s"]
+    xyz = xyz.without_differentials()
+
+    
+    # Construct rotation matrix from orbital plane system to reference plane system.
+    R1 = rotation_matrix(-omega, axis='z')
+    R2 = rotation_matrix(i, axis='x')
+    R3 = rotation_matrix(Omega, axis='z')
+    Rot = matrix_product(R3, R2, R1)
+
+    # Rotate photocenters to the reference plane system.
+    XYZ = coord.CartesianRepresentation(matrix_product(Rot, xyz.xyz))
+    VXYZ = coord.CartesianDifferential(matrix_product(Rot, vxyz.d_xyz))
+    XYZ = XYZ.with_differentials(VXYZ)
+
+    barycenter = twobody.Barycenter(origin=origin, t0=t0)
+    kw = dict(origin=barycenter.origin)
+    rp = twobody.ReferencePlaneFrame(XYZ, **kw)
+
+    # Calculate the ICRS positions.
+    icrs_cart = rp.transform_to(coord.ICRS).cartesian
+    icrs_pos = icrs_cart.without_differentials()
+    icrs_vel = icrs_cart.differentials["s"]
+
+    bary_cart = barycenter.origin.cartesian
+    bary_vel = bary_cart.differentials["s"]
+
+    dt = t - barycenter.t0
+    dx = (bary_vel * dt).to_cartesian()
+
+    pos = icrs_pos + dx
+    vel = icrs_vel + bary_vel
+
+    icrs = coord.ICRS(pos.with_differentials(vel))
+
+    ra, dec = (icrs.ra, icrs.dec)
+
+
+    fig, ax = plt.subplots()
+    ax.scatter(ra, dec)
+
+    ra_mean = np.mean(ra.value)
+    dec_mean = np.mean(dec.value)
+
+    # common xlim/ylims
+    limits = 1.1 * max(np.ptp(ra.value), np.ptp(dec.value))
+
+    ax.set_xlim(ra_mean - 0.5 * limits,
+                ra_mean + 0.5 * limits)
+    ax.set_ylim(dec_mean - 0.5 * limits,
+                dec_mean + 0.5 * limits)
+
+
+
+
+
+
+    raise a
+
+    # Use expected Gaia errors (given G mag and VmI colour) for a single transit.
+    # https://arxiv.org/pdf/1404.5861.pdf says 5.7 \mu as and some unknown CCD
+    # centroid positioning error.
+
+    # Calculate a \chi^2 
+    # Calculate a RUWE
+
+
+    rms_in_au = np.sqrt(np.sum((pc - np.mean(pc, axis=0))**2)/N)
+
+    # Convert to reference plane.
+    rms_in_mas = (rms_in_au * u.au / DISTANCE).to(u.mas, equivalencies=u.dimensionless_angles())
+
+    raise a
+
+    return (rms_in_mas, dict(rms_in_au=rms_in_au))
+
+
+
+def actual_astrometric_excess_noise(t, P, m1, m2, f1, f2, omega=0 * u.deg, i=0 * u.deg,
+                                    origin=None, **kwargs):
+    
     barycenter = twobody.Barycenter(origin=origin, t0=Time('J2015.5'))
 
     elements = twobody.TwoBodyKeplerElements(P=P, m1=m1, m2=m2, omega=omega, i=i)
@@ -106,6 +258,13 @@ def actual_astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, **kwargs):
     primary_icrs = primary_orbit.icrs(t)
     secondary_icrs = secondary_orbit.icrs(t)
 
+    # Calculate orbital plane positions (just to check)
+    p_xyz = primary_orbit.orbital_plane(t)
+    s_xyz = secondary_orbit.orbital_plane(t)
+
+    x = np.vstack([p_xyz.x.to(u.AU).value, s_xyz.x.to(u.AU).value]).T
+    y = np.vstack([p_xyz.x.to(u.AU).value, s_xyz.y.to(u.AU).value]).T
+
     # Position of the primary + a fraction towards the position of the secondary.
     w = np.atleast_2d([f1, f2])/(f1 + f2)
     photocenter_ra = w @ np.array([primary_icrs.ra, secondary_icrs.ra])
@@ -114,28 +273,48 @@ def actual_astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, **kwargs):
     # The AEN is ~ the rms distance on sky.
     photocenters = np.vstack([photocenter_ra, photocenter_dec])
 
+    pc_xy = np.vstack([w @ x.T, w @ y.T]).T
+    rms_au = np.sqrt(np.sum((pc_xy - np.mean(pc_xy, axis=0))**2)/t.size)
+
     #rms = (np.std(photocenters.T - np.mean(photocenters, axis=1)) * u.deg).to(u.mas)
     rms = np.sqrt(np.sum((photocenters.T - np.mean(photocenters, axis=1))**2)/t.size)
     rms_in_mas = (rms * u.deg).to(u.mas)
 
-    return rms_in_mas
+    meta = dict(barycenter=barycenter,
+                elements=elements,
+                primary_orbit=primary_orbit,
+                secondary_orbit=secondary_orbit,
+                primary_icrs=primary_icrs,
+                secondary_icrs=secondary_icrs,
+                weights=w,
+                photocenter_ra=photocenter_ra,
+                photocenter_dec=photocenter_dec,
+                photocenters=photocenters,
+                pc_xy=pc_xy,
+                x=x,
+                y=y,
+                p_xyz=p_xyz,
+                s_xyz=s_xyz,
+                rms_in_au=rms_au)
+
+    return (rms_in_mas, meta)
 
 
 # From https://www.cosmos.esa.int/web/gaia/dr2
 obs_start = Time('2014-07-25T10:30')
 obs_end = Time('2016-05-23T11:35')
 
-astrometric_n_good_obs_al = lambda **_: 250
+astrometric_n_good_obs_al = lambda **_: 256
 
 # Put the sky position something where it will not wrap...
-kwds = dict(i=0 * u.deg,
+kwds = dict(i=45 * u.deg,
             omega=0 * u.deg,
             origin=coord.ICRS(ra=0.1 * u.deg,
-                              dec=0 * u.deg,
-                              distance=100 * u.pc,
-                              pm_ra_cosdec=0 * u.mas/u.yr,
-                              pm_dec=0 * u.mas/u.yr,
-                              radial_velocity=0 * u.km/u.s))
+                              dec=-30 * u.deg,
+                              distance=5 * u.pc,
+                              pm_ra_cosdec=-10 * u.mas/u.yr,
+                              pm_dec=30 * u.mas/u.yr,
+                              radial_velocity=100 * u.km/u.s))
 
 
 
@@ -168,43 +347,125 @@ qs = np.linspace(0.1, 1, q_bins)
 
 
 qPs = np.array(list(itertools.product(qs, Ps)))
+
+
+qPs = np.array([
+    [0.5, 668]
+])
 approx_aen = np.zeros((qPs.shape[0], N_repeats), dtype=float)
 actual_aen = np.zeros((qPs.shape[0], N_repeats), dtype=float)
 
+extras = np.zeros((qPs.shape[0], N_repeats, 6), dtype=float)
 
 for i, (q, P) in enumerate(tqdm(qPs)):
 
+    P = P * u.day
+
     for j, m1 in enumerate(Ms):
         
-        """
         N = astrometric_n_good_obs_al()
+        #t_actual = obs_start + np.random.uniform(size=N) * (obs_end - obs_start)
+        t_actual = obs_start + np.linspace(0, 1, N) * (obs_end - obs_start)
+        t_approx = (t_actual - obs_start).to(u.day)
+
+        #t_actual = obs_start + np.linspace(0, P, N)
+        #t_approx = (t_actual - obs_start).to(u.day)
+
+        m2 = q * m1
+
+        sim_kwds = kwds.copy()
+        sim_kwds.update(P=P,
+                        m1=m1, m2=m2,
+                        f1=m1.to(u.solMass).value**3.5,
+                        f2=m2.to(u.solMass).value**3.5)
+
+        approx, approx_meta = approx_astrometric_excess_noise(t=t_approx, **sim_kwds)
         
-        t = obs_start + np.random.uniform(size=N) * (obs_end - obs_start)
+        approx_aen[i, j] = approx.to(u.mas).value
 
-        # Chose m1/m2 from q = m2/m1
-        m2 = q * m1
+        actual, actual_meta = astrometric_excess_noise(t=t_actual, **sim_kwds)
+        actual_aen[i, j] = actual.to(u.mas).value
 
-        # Simulate.
-        sim_kwds = kwds.copy()
-        sim_kwds.update(t=t, P=P * u.day, m1=m1, m2=m2)
+        raise a
 
-        predicted_aen[i, j] = astrometric_excess_noise(**sim_kwds).to(u.mas).value
-        """
-        N = astrometric_n_good_obs_al()
-        t = obs_start + np.random.uniform(size=N) * (obs_end - obs_start)
+        extras[i, j, :] = [P.value, q, m1.value, m2.value, approx_meta["rms_in_au"], actual_meta["rms_in_au"]]
 
-        m2 = q * m1
+        print(actual, approx)
 
-        sim_kwds = kwds.copy()
-        sim_kwds.update(t=t, P=P * u.day, m1=m1, m2=m2)
-
-        approx_aen[i, j] = approx_astrometric_excess_noise(**sim_kwds).to(u.mas).value
-        actual_aen[i, j] = actual_astrometric_excess_noise(**sim_kwds).to(u.mas).value
+        if False and q < 0.2:
 
 
+            pc_kwds = dict(s=1, c="k")
+
+            K = 3
+            fig, axes = plt.subplots(1, K, figsize=(4 * K, 4), sharex=True, sharey=True)
+
+            
+            # Plot positions.
+            s = np.linspace(1, 50, N)
+            axes[1].scatter(actual_meta["x"].T[0], actual_meta["y"].T[0], s=s, c="tab:blue")
+            axes[1].scatter(actual_meta["x"].T[1], actual_meta["y"].T[1], s=s, c="tab:red")
+
+            # Plot photocenter.
+            axes[0].scatter(approx_meta["dx"], approx_meta["dy"], **pc_kwds)
+            axes[1].scatter(actual_meta["pc_xy"].T[0], actual_meta["pc_xy"].T[1], **pc_kwds)
+
+            t0 = Time('J2015.5')
+            # Compute orbital positions.
+            with u.set_enabled_equivalencies(u.dimensionless_angles()):
+                M1 = (2*np.pi * (t_actual.tcb - t0.tcb) / P).to(u.radian)
+                M2 = (2*np.pi * (t_actual.tcb - t0.tcb) / P - np.pi).to(u.radian)
+                
+            e = 0
+
+            # eccentric anomaly
+            E1 = twobody.eccentric_anomaly_from_mean_anomaly(M1, e)
+            E2 = twobody.eccentric_anomaly_from_mean_anomaly(M2, e)
+
+            # mean anomaly
+            F1 = twobody.true_anomaly_from_eccentric_anomaly(E1, e)
+            F2 = twobody.true_anomaly_from_eccentric_anomaly(E2, e)
+
+            # Calc a1/a2.
+            m_total = m1 + m2
+            a = twobody.P_m_to_a(P, m_total)
+            a1 = m2 * a / m_total
+            a2 = m1 * a / m_total
+
+            r1 = a1 * (1. - e * np.cos(E1))
+            r2 = a2 * (1. - e * np.cos(E2))
+
+            x1 = (r1 * np.cos(F1)).to(u.au).value
+            y1 = (r1 * np.sin(F1)).to(u.au).value
+
+            x2 = (r2 * np.cos(F2)).to(u.au).value
+            y2 = (r2 * np.sin(F2)).to(u.au).value
+
+            # Calc photocenter.
+            x = np.vstack([x1, x2]).T
+            y = np.vstack([y1, y2]).T
+
+            w = actual_meta["weights"]
+            _pc_xy = np.vstack([w @ x.T, w @ y.T]).T
+            _rms_au = np.sqrt(np.sum((_pc_xy - np.mean(_pc_xy, axis=0))**2)/N)
+
+            foo = astrometric_excess_noise(t_actual, P, m1, m2)
 
 
-mean_aen = np.mean(predicted_aen, axis=1).reshape((q_bins, P_bins))
+            axes[2].scatter(x1, y1, s=s, c="tab:blue")
+            axes[2].scatter(x2, y2, s=s, c="tab:red")
+
+            axes[2].scatter(_pc_xy.T[0], _pc_xy.T[1], c="k")
+
+            axvline_kwds = dict(c="#666666", linestyle=":", linewidth=0.5, zorder=-1, ms=1)
+            for ax in axes:
+                ax.axvline(0, **axvline_kwds)
+                ax.axhline(0, **axvline_kwds)
+            raise a
+
+
+
+mean_aen = np.mean(approx_aen, axis=1).reshape((q_bins, P_bins))
 
 # Plot per Q first.
 cmap = cm.viridis(qs)
