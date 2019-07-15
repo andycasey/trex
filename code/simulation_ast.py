@@ -51,11 +51,13 @@ np.random.seed(0)
 # i = 45
 # i = 90
 
-DISTANCE = 100 * u.pc
 
 
-def approx_astrometric_excess_noise(t, P, m1, m2, f1, f2, **kwargs):
-
+def approx_astrometric_excess_noise(t, P, m1, m2, f1, f2, distance, **kwargs):
+    """
+    A crude approximation for astrometric excess noise that does not account
+    for orbital inclination, projection to the reference plane, and other stuff.
+    """
 
     m_total = m1 + m2
     w = np.array([f1, f2])/(f1 + f2)
@@ -74,7 +76,7 @@ def approx_astrometric_excess_noise(t, P, m1, m2, f1, f2, **kwargs):
     dy = a1 * w1 * np.sin(phi) + a2 * w2 * np.sin(phi + np.pi)
 
     rms_in_au = np.sqrt(np.sum((dx - np.mean(dx))**2 + (dy - np.mean(dy))**2)/N).value
-    rms_in_mas = (rms_in_au * u.au / DISTANCE).to(u.mas, equivalencies=u.dimensionless_angles())
+    rms_in_mas = (rms_in_au * u.au / distance).to(u.mas, equivalencies=u.dimensionless_angles())
 
     meta = dict(weights=w,
                 a=a,
@@ -87,13 +89,16 @@ def approx_astrometric_excess_noise(t, P, m1, m2, f1, f2, **kwargs):
                 dy=dy,
                 rms_in_au=rms_in_au)
 
-
     return (rms_in_mas, meta)
+
+
 
 
 def astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, e=0, t0=None,
                              omega=0*u.deg, i=0*u.deg, Omega=0*u.deg, 
                              origin=None, **kwargs):
+
+    ## TODO: Refactor this behemoth!!
 
     if f1 is None:
         f1 = m1.to(u.solMass).value**3.5
@@ -200,17 +205,42 @@ def astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, e=0, t0=None,
 
     icrs = coord.ICRS(pos.with_differentials(vel))
 
-    ra, dec = (icrs.ra, icrs.dec)
+    # Add error to each one.
+    intrinsic_error = 5.7 * 10**-6 * u.mas # arcseconds # muas * 10**-6 * u.mas
+    
+    N = t.size
+    ra = icrs.ra.to(u.deg).value + np.random.normal(0, intrinsic_error.to(u.deg).value, size=N)
+    dec = icrs.dec.to(u.deg).value + np.random.normal(0, intrinsic_error.to(u.deg).value, size=N)
 
+    # Calc a chi^2 assuming a single position.
+    v_ = np.array([ra, dec]).T
+
+    # NOTE THIS IS NOT STRICTLY THE ASTROMETRIC CHI2 BECAUSE WE ARE ASSUMING THE
+    # EFFECTS OF PROPER MOTION AND PARALLAX HAVE BEEN REMOVED!!
+    # TODO HACK FIX THIS
+
+    #astrometric_chi2_al = np.sum(((v_ - np.mean(v_, axis=0))/intrinsic_error.to(u.deg).value)**2)
+    #mv = np.mean(v_, axis=0)
+    #astrometric_chi2_al = np.sum((v_ - mv)**2 / mv)
+    mv = np.mean(v_, axis=0)
+    rms = np.sum((v_ - mv)**2 / intrinsic_error) / N
+
+    ruwe = np.sqrt(rms/(N - 2))
+
+    #     data=np.sqrt(group["astrometric_chi2_al"][()]/(group["astrometric_n_good_obs_al"][()] - 5)))
+
+    # Calc a RUWE
+
+    ra, dec = v_.T
 
     fig, ax = plt.subplots()
     ax.scatter(ra, dec)
 
-    ra_mean = np.mean(ra.value)
-    dec_mean = np.mean(dec.value)
+    ra_mean = np.mean(ra)
+    dec_mean = np.mean(dec)
 
     # common xlim/ylims
-    limits = 1.1 * max(np.ptp(ra.value), np.ptp(dec.value))
+    limits = 1.1 * max(np.ptp(ra), np.ptp(dec))
 
     ax.set_xlim(ra_mean - 0.5 * limits,
                 ra_mean + 0.5 * limits)
@@ -219,7 +249,7 @@ def astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, e=0, t0=None,
 
 
 
-
+    raise a
 
 
     raise a
@@ -243,62 +273,6 @@ def astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, e=0, t0=None,
 
 
 
-def actual_astrometric_excess_noise(t, P, m1, m2, f1, f2, omega=0 * u.deg, i=0 * u.deg,
-                                    origin=None, **kwargs):
-    
-    barycenter = twobody.Barycenter(origin=origin, t0=Time('J2015.5'))
-
-    elements = twobody.TwoBodyKeplerElements(P=P, m1=m1, m2=m2, omega=omega, i=i)
-
-    primary_orbit = twobody.KeplerOrbit(elements.primary, barycenter=barycenter)
-    secondary_orbit = twobody.KeplerOrbit(elements.secondary, barycenter=barycenter)
-    secondary_orbit.M0 = 180 * u.deg
-
-    # Calculate the ICRS positions.
-    primary_icrs = primary_orbit.icrs(t)
-    secondary_icrs = secondary_orbit.icrs(t)
-
-    # Calculate orbital plane positions (just to check)
-    p_xyz = primary_orbit.orbital_plane(t)
-    s_xyz = secondary_orbit.orbital_plane(t)
-
-    x = np.vstack([p_xyz.x.to(u.AU).value, s_xyz.x.to(u.AU).value]).T
-    y = np.vstack([p_xyz.x.to(u.AU).value, s_xyz.y.to(u.AU).value]).T
-
-    # Position of the primary + a fraction towards the position of the secondary.
-    w = np.atleast_2d([f1, f2])/(f1 + f2)
-    photocenter_ra = w @ np.array([primary_icrs.ra, secondary_icrs.ra])
-    photocenter_dec = w @ np.array([primary_icrs.dec, secondary_icrs.dec])
-
-    # The AEN is ~ the rms distance on sky.
-    photocenters = np.vstack([photocenter_ra, photocenter_dec])
-
-    pc_xy = np.vstack([w @ x.T, w @ y.T]).T
-    rms_au = np.sqrt(np.sum((pc_xy - np.mean(pc_xy, axis=0))**2)/t.size)
-
-    #rms = (np.std(photocenters.T - np.mean(photocenters, axis=1)) * u.deg).to(u.mas)
-    rms = np.sqrt(np.sum((photocenters.T - np.mean(photocenters, axis=1))**2)/t.size)
-    rms_in_mas = (rms * u.deg).to(u.mas)
-
-    meta = dict(barycenter=barycenter,
-                elements=elements,
-                primary_orbit=primary_orbit,
-                secondary_orbit=secondary_orbit,
-                primary_icrs=primary_icrs,
-                secondary_icrs=secondary_icrs,
-                weights=w,
-                photocenter_ra=photocenter_ra,
-                photocenter_dec=photocenter_dec,
-                photocenters=photocenters,
-                pc_xy=pc_xy,
-                x=x,
-                y=y,
-                p_xyz=p_xyz,
-                s_xyz=s_xyz,
-                rms_in_au=rms_au)
-
-    return (rms_in_mas, meta)
-
 
 # From https://www.cosmos.esa.int/web/gaia/dr2
 obs_start = Time('2014-07-25T10:30')
@@ -310,11 +284,11 @@ astrometric_n_good_obs_al = lambda **_: 256
 kwds = dict(i=45 * u.deg,
             omega=0 * u.deg,
             origin=coord.ICRS(ra=0.1 * u.deg,
-                              dec=-30 * u.deg,
-                              distance=5 * u.pc,
-                              pm_ra_cosdec=-10 * u.mas/u.yr,
-                              pm_dec=30 * u.mas/u.yr,
-                              radial_velocity=100 * u.km/u.s))
+                              dec=0 * u.deg,
+                              distance=1000 * u.pc,
+                              pm_ra_cosdec=0 * u.mas/u.yr,
+                              pm_dec=0 * u.mas/u.yr,
+                              radial_velocity=0 * u.km/u.s))
 
 
 
@@ -379,7 +353,7 @@ for i, (q, P) in enumerate(tqdm(qPs)):
                         f1=m1.to(u.solMass).value**3.5,
                         f2=m2.to(u.solMass).value**3.5)
 
-        approx, approx_meta = approx_astrometric_excess_noise(t=t_approx, **sim_kwds)
+        approx, approx_meta = approx_astrometric_excess_noise(t=t_approx, distance=10 * u.pc, **sim_kwds)
         
         approx_aen[i, j] = approx.to(u.mas).value
 
