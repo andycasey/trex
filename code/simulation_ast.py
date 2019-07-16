@@ -31,7 +31,8 @@ np.random.seed(0)
 # (1) Approximate the astrometric RMS by ignoring inclination, sky distortian, etc.
 # (2) Exactly calculate the astrometric RMS.
 
-def approximate_astrometric_excess_noise(t, P, m1, m2, distance, f1=None, f2=None, t0=None, i=0 * u.deg,**kwargs):
+def approximate_ruwe(t, P, m1, m2, distance, f1=None, f2=None, t0=None, 
+                     i=0*u.deg, **kwargs):
     """
     Approximate the on-sky astrometric excess noise for a binary system with the
     given system parameters at a certain distance.
@@ -131,6 +132,18 @@ def approximate_astrometric_excess_noise(t, P, m1, m2, distance, f1=None, f2=Non
     rms_in_au = np.sqrt(ds**2 + (np.cos(i) * ds)**2)
     rms_in_mas = (rms_in_au * u.au / distance).to(u.mas, equivalencies=u.dimensionless_angles())
 
+    # Intrinsic error on position in one direction is.
+    # These are the final values. The individual epochs are probably about a 10th of this.
+    intrinsic_ra_error = 0.029 # mas
+    intrinsic_dec_error = 0.026 # mas
+
+    intrinsic_ra_error /= 10
+    intrinsic_dec_error /= 10
+
+    chi2 = N * rms_in_mas.to(u.mas).value**2 / np.sqrt(intrinsic_ra_error**2 + intrinsic_dec_error**2)
+
+    approx_ruwe = np.sqrt(chi2/(N - 2))
+
     meta = dict(weights=w,
                 a=a,
                 a1=a1,
@@ -142,7 +155,7 @@ def approximate_astrometric_excess_noise(t, P, m1, m2, distance, f1=None, f2=Non
                 dy=dy,
                 rms_in_au=rms_in_au)
 
-    return (rms_in_mas, meta)
+    return (approx_ruwe, meta)
 
 
 def astrometric_excess_noise(t, P, m1, m2, f1=None, f2=None, e=0, t0=None,
@@ -309,7 +322,7 @@ observing_span = obs_end - obs_start
 # the contribution of those factors has been accounted for by Gaia
 origin = coord.ICRS(ra=0.1 * u.deg,
                     dec=0 * u.deg,
-                    distance=1 * u.pc,
+                    distance=1000 * u.pc,
                     pm_ra_cosdec=0 * u.mas/u.yr,
                     pm_dec=0 * u.mas/u.yr,
                     radial_velocity=0 * u.km/u.s)
@@ -360,15 +373,16 @@ qs = np.linspace(0.1, 1, q_bins)
 
 qPs = np.array(list(itertools.product(qs, Ps)))
 
-aen = np.zeros((qPs.shape[0], N_repeats), dtype=float)
-approx_aen = np.zeros((qPs.shape[0], N_repeats), dtype=float)
+ruwe = np.zeros((qPs.shape[0], N_repeats), dtype=float)
+#approx_aen = np.zeros((qPs.shape[0], N_repeats), dtype=float)
+approx_ruwe = np.zeros((qPs.shape[0], N_repeats), dtype=float)
 
 extras = np.zeros((qPs.shape[0], N_repeats, 4), dtype=float)
 
 
-def _mp_approx_aen(i, j, kw):
-    v, meta = approximate_astrometric_excess_noise(**kw)
-    return (i, j, v.to(u.mas).value)
+def _mp_approx_ruwe(i, j, kw):
+    v, meta = approximate_ruwe(**kw)
+    return (i, j, v)
 
 def _mp_actual_aen(i, j, kw):
     v, meta = astrometric_excess_noise(**kw)
@@ -404,15 +418,18 @@ for i, (q, P) in enumerate(tqdm(qPs)):
         extras[i, j, :len(v)] = v
 
         if PROCESSES > 1:
-            p_approx.append(pool.apply_async(_mp_approx_aen, (i, j, kw)))
+            p_approx.append(pool.apply_async(_mp_approx_ruwe, (i, j, kw)))
 
             if BURN_FORESTS:
                 p_actual.append(pool.apply_async(_mp_actual_aen, (i, j, kw)))
 
         else:
-            approx_rms, approx_meta = approximate_astrometric_excess_noise(**kw)
+            #approx_rms, approx_meta = approximate_ruwe(**kw)
+            r, approx_meta = approximate_ruwe(**kw)
             # TODO: Don't take RMS == AEN! They are different!
-            approx_aen[i, j] = approx_rms.to(u.mas).value        
+            #approx_aen[i, j] = approx_rms.to(u.mas).value        
+
+            approx_ruwe[i, j] = r
            
             if BURN_FORESTS:
                 actual_rms, actual_meta = astrometric_excess_noise(**kw)
@@ -423,7 +440,7 @@ if PROCESSES > 1:
     print("Collecting results")
     for each in tqdm(p_approx):
         i, j, v = each.get(timeout=1)
-        approx_aen[i, j] = v
+        approx_ruwe[i, j] = v
 
     for each in p_actual:
         i, j, v = each.get(timeout=1)
@@ -435,7 +452,8 @@ if PROCESSES > 1:
 
 if not BURN_FORESTS:
     print("Using AEN approximations")
-    aen = approx_aen
+    #aen = approx_aen
+    ruwe = approx_ruwe
 
 else:
     print("Plotting using expensive AEN -- doing comparisons")
@@ -491,13 +509,13 @@ else:
 
 
 
-mean_aen = np.mean(aen, axis=1).reshape((q_bins, P_bins))
+mean_ruwe = np.mean(ruwe, axis=1).reshape((q_bins, P_bins))
 
 # Plot per Q first.
 cmap = cm.viridis(qs)
 fig, ax = plt.subplots()
 
-lc = LineCollection([np.column_stack([Ps, ma]) for ma in mean_aen])
+lc = LineCollection([np.column_stack([Ps, mr]) for mr in mean_ruwe])
 
 lc.set_array(np.asarray(qs))
 ax.add_collection(lc)
@@ -511,7 +529,7 @@ cbar.set_label(r"$q$")
 
 
 ax.set_xlabel(r"{period / days}$^{-1}$")
-ax.set_ylabel(r"{AEN / mas}")
+ax.set_ylabel(r"{RUWE}")
 ax.semilogx()
 
 v = (obs_end - obs_start).to(u.day).value
@@ -528,7 +546,7 @@ qm, Pm = np.meshgrid(qs, Ps)
 contourf_kwds = dict(cmap="magma", norm=LogNorm(), levels=None)
 
 fig, ax = plt.subplots()
-im = ax.contourf(Ps, qs, mean_aen, **contourf_kwds)
+im = ax.contourf(Ps, qs, mean_ruwe, **contourf_kwds)
 ax.semilogx()
 
 
@@ -536,7 +554,7 @@ ax.set_xlabel(r"{period / days}$^{-1}$")
 ax.set_ylabel(r"$q$")
 
 cbar = plt.colorbar(im)
-cbar.set_label(r"{AEN / mas}")
+cbar.set_label(r"{RUWE / mas}")
 
 fig.tight_layout()
 
@@ -547,12 +565,12 @@ ax.axvline(2 * v, linestyle="-", **axvline_kwds)
 
 
 print(kwds)
-print(np.min(mean_aen), np.max(mean_aen))
 
 
 # Let's do a simple thing about detector efficiency.
 # Let's assume anything more than 0.1 umas RMS is a detected binary.
-detected = (aen >= (0.1 * u.mas).value).astype(int)
+#detected = (aen >= (0.1 * u.mas).value).astype(int)
+detected = (ruwe >= 1.5).astype(int)
 
 de = np.mean(detected, axis=1).reshape((q_bins, P_bins))
 
