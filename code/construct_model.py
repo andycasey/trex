@@ -71,8 +71,8 @@ if __name__ == "__main__":
 
         else:
             if "/" in k:
-                k1, k2 = k.split("/")
-                del config_copy[k1][k2]
+                k1, k2, k3 = k.split("/")
+                del config_copy[k1][k2][k3]
 
 
     unique_hash = md5((f"{config_copy}").encode("utf-8")).hexdigest()[:5]
