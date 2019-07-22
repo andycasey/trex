@@ -69,6 +69,12 @@ if __name__ == "__main__":
         if k in config_copy: 
             del config_copy[k]
 
+        else:
+            if "/" in k:
+                k1, k2 = k.split("/")
+                del config_copy[k1][k2]
+
+
     unique_hash = md5((f"{config_copy}").encode("utf-8")).hexdigest()[:5]
     logger.info(f"Unique hash: {unique_hash}")
 
@@ -86,52 +92,17 @@ if __name__ == "__main__":
     data_path = os.path.join(pwd, config["data_path"])
     data = h5.File(data_path, "r")
 
-
-    # Get a list of all relevant label names
-    all_label_names = []
-    for model_name, model_config in config["models"].items():
-        all_label_names.append(model_config["predictor_label_name"])
-        all_label_names.extend(model_config["kdtree_label_names"])
-
-    all_label_names = list(np.unique(all_label_names))     
-
     # Require finite entries for all predictors across all models.
     sources = data["sources"]
     M = config["number_of_sources_for_gaussian_process"]
     N = sources["source_id"].size
 
-    data_mask = np.ones(N, dtype=bool)
-        
-    data_bounds = config.get("data_bounds", None)
-    if data_bounds:
-        for parameter_name, (upper, lower) in data_bounds.items():
-            lower, upper = np.sort([lower, upper])
-            data_mask *= (upper >= sources[parameter_name][()]) \
-                       * (sources[parameter_name][()] >= lower)
-
-            logger.info(f"Restricting to sources with {parameter_name}: [{lower:.1f}, {upper:.1f}]")
-
-
-
-    # Check for finite values.
-    for ln in all_label_names:
-        data_mask *= np.isfinite(sources[ln][()])
-        
-    data_indices = np.where(data_mask)[0]
-    npm_indices = np.random.choice(data_indices.size, M, replace=False)
-    
     # Create results file.
     with h5.File(results_path, "w") as results:
 
         # Add config.
         results.attrs.create("config", np.string_(yaml.dump(config)))
         results.attrs.create("config_path", np.string_(config_path))
-
-        # Add indices.
-        g = results.create_group("indices")
-        g.create_dataset("data_indices", data=data_indices)
-        g.create_dataset("npm_indices", data=npm_indices)
-
 
     # Load model and check optimization keywords
     model_path = os.path.join(pwd, config["model_path"])
@@ -185,23 +156,40 @@ if __name__ == "__main__":
         # Set up a KD-tree.
         lns = list(model_config["kdtree_label_names"]) + [model_config["predictor_label_name"]]
 
+        # Create data mask and save it.
+        data_mask = np.ones(N, dtype=bool)
+        all_label_names = [model_config["predictor_label_name"]] \
+                        + list(model_config["kdtree_label_names"])
+        for ln in np.unique(all_label_names):
+            data_mask *= np.isfinite(sources[ln][()])
+
+
+        data_bounds = model_config.get("data_bounds", None)
+        if data_bounds:
+            for parameter_name, (upper, lower) in data_bounds.items():
+                lower, upper = np.sort([lower, upper])
+                data_mask *= (upper >= sources[parameter_name][()]) \
+                           * (sources[parameter_name][()] >= lower)
+
+                logger.info(f"Restricting to sources with {parameter_name}: [{lower:.1f}, {upper:.1f}]")
+
+        data_indices = np.where(data_mask)[0]
+        npm_indices = np.random.choice(data_indices.size, M, replace=False)
+
         Z = np.vstack([sources[ln][()] for ln in lns]).T
         X, Y = Z[data_mask, :-1], Z[data_mask, -1]
         S = sources["source_id"][()][data_mask]
 
-        N, D = X.shape
-
-
-        logger.info(f"Building K-D tree with N = {N}, D = {D}...")
+        
+        logger.info(f"Building K-D tree with N = {X.shape[0]}, D = {X.shape[1]}...")
         kdt, scales, offsets = npm.build_kdtree(X, 
                 relative_scales=model_config["kdtree_relative_scales"])
 
         kdt_kwds = dict(offsets=offsets, scales=scales, full_output=True)
-        kdt_kwds.update(
-            minimum_radius=model_config["kdtree_minimum_radius"],
-            maximum_radius=model_config["kdtree_maximum_radius"],
-            minimum_points=model_config["kdtree_minimum_points"],
-            maximum_points=model_config["kdtree_maximum_points"])
+        kdt_kwds.update(minimum_radius=model_config["kdtree_minimum_radius"],
+                        maximum_radius=model_config["kdtree_maximum_radius"],
+                        minimum_points=model_config["kdtree_minimum_points"],
+                        maximum_points=model_config["kdtree_maximum_points"])
 
         # Optimize the non-parametric model for those sources.
         npm_results = np.zeros((M, 5))
@@ -508,7 +496,6 @@ if __name__ == "__main__":
         if not config.get("multiprocessing", False):
             sp_swarm(*npm_indices)
 
-            raise a
 
         else:
             P = config.get("processes", mp.cpu_count())
@@ -604,6 +591,10 @@ if __name__ == "__main__":
 
         # Save results.
         with h5.File(results_path, "a") as results:
+
+            g = results.create_group(model_name)
+            g.create_dataset("data_indices", data=data_indices)
+            g.create_dataset("npm_indices", data=npm_indices)
 
             # ast/mixture_model
             g = results.create_group(f"{model_name}/mixture_model")

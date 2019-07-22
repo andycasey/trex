@@ -80,9 +80,9 @@ if __name__ == "__main__":
     return_var = True
     batch_size = 15000
 
-    data_indices = results["indices"]["data_indices"][()]
-
     for model_name, model_config in config["models"].items():
+
+        data_indices = results[model_name]["data_indices"][()]
 
         lns = list(model_config["kdtree_label_names"]) 
         parameter_names = list(results[f"{model_name}/gp"].keys())

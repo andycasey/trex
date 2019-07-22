@@ -31,43 +31,6 @@ logger.setLevel(logging.INFO)
 
 if __name__ == "__main__":
 
-    """
-    config_path = sys.argv[1]
-
-    with open(config_path, "r") as fp:
-        config = yaml.load(fp, Loader=yaml.Loader)
-
-    pwd = os.path.dirname(config_path)
-
-    random_seed = int(config["random_seed"])
-    np.random.seed(random_seed)
-
-    logger.info(f"Config path: {config_path} with seed {random_seed}")
-
-    # Generate a unique hash.
-    config_copy = config.copy()
-    for k in config_copy.pop("ignore_keywords_when_creating_hash", []):
-        if k in config_copy: 
-            del config_copy[k]
-
-    unique_hash = md5((f"{config_copy}").encode("utf-8")).hexdigest()[:5]
-    logger.info(f"Unique hash: {unique_hash}")
-
-
-
-    # Load data.
-    data_path = os.path.join(pwd, config["data_path"])
-    data = h5.File(data_path, "r")
-    sources = data["sources"]
-    
-
-    # Load in the results path.
-    results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
-    results_dir = os.path.dirname(results_path)
-
-    results = h5.File(results_path, "a")
-    """
-
     # Load in the results path.
     results_path = sys.argv[1]
     results_dir = os.path.dirname(results_path)
@@ -86,11 +49,11 @@ if __name__ == "__main__":
     sources = data["sources"]
 
 
-    data_indices = results["indices"]["data_indices"][()]
-    npm_indices = results["indices"]["npm_indices"][()]
-
     for model_name, model_config in config["models"].items():
         logger.info(f"Running {model_name} model")
+
+        data_indices = results[model_name]["data_indices"][()]
+        
 
         lns = list(model_config["kdtree_label_names"]) 
         predictor_label_name = model_config["predictor_label_name"]
@@ -151,27 +114,41 @@ if __name__ == "__main__":
         with np.errstate(under="ignore"):
             ratio = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))    
 
-        g.create_dataset("ratio_single", data=ratio)
+        full_ratios = np.zeros(sources["source_id"].size, dtype=float)
+        full_ratios[data_indices] = ratio
+        g.create_dataset("ratio_single", data=full_ratios)
 
 
 
     # Calculate joint ratios.
     model_names = list(config["models"].keys())
+    
     if len(model_names) > 1:
 
         # Calculate joint likelihood ratio.
-        ln_s = np.sum([results[f"model_selection/likelihood/{mn}/single"][()] for mn in model_names],
-                      axis=0)
-        ln_m = np.sum([results[f"model_selection/likelihood/{mn}/multiple"][()] for mn in model_names],
-                      axis=0)
+        kw = dict(shape=(len(model_names), sources["source_id"].size), dtype=float)
+        ln_s = np.nan * np.ones(**kw)
+        ln_m = np.nan * np.ones(**kw)
+
+        for i, model_name in enumerate(model_names):
+            data_indices = results[f"{model_name}/data_indices"]
+            ln_s[i, data_indices] = results[f"model_selection/likelihood/{model_name}/single"][()]
+            ln_m[i, data_indices] = results[f"model_selection/likelihood/{model_name}/multiple"][()]
+
+        ln_s = np.nansum(ln_s, axis=0)
+        ln_m = np.nansum(ln_m, axis=0)
 
         lp = np.array([ln_s, ln_m]).T
+
         with np.errstate(under="ignore"):
             ratio = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))
 
         dataset_name = "model_selection/likelihood/joint_ratio_single"
         if dataset_name in results:
             del results[dataset_name]
+
+        no_info = (ln_s == 0) & (ln_m == 0)
+        ratio[no_info] = np.nan
 
         results.create_dataset(dataset_name, data=ratio)
 

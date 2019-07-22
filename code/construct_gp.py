@@ -32,7 +32,7 @@ overwrite = True
 
 if __name__ == "__main__":
 
-    config_path = sys.argv[1]
+    #config_path = sys.argv[1]
 
     """
     with open(config_path, "r") as fp:
@@ -84,12 +84,13 @@ if __name__ == "__main__":
     figures_dir = os.path.join(results_dir, "figures")
     os.makedirs(figures_dir, exist_ok=True)
 
-    data_indices = results["indices"]["data_indices"][()]
-    npm_indices = results["indices"]["npm_indices"][()]
 
     for model_name, model_config in config["models"].items():
 
         logger.info(f"Running {model_name} model")
+
+        data_indices = results[model_name]["data_indices"][()]
+        npm_indices = results[model_name]["npm_indices"][()]
 
         lns = list(model_config["kdtree_label_names"]) 
 
@@ -148,7 +149,7 @@ if __name__ == "__main__":
 
             # Check for an initial guess.
             try:
-                p0 = np.array(config["gp_initial_guesses"][model_name][parameter_name])
+                p0 = np.array(model_config["gp_initial_guess"][parameter_name])
 
             except KeyError:
                 p0 = gp.get_parameter_vector()
