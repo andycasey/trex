@@ -21,3 +21,6 @@ article/*.log
 article/_minted-*/
 
 literature/
+
+notebooks/.ipynb_checkpoints/
+notebooks/*.csv*
