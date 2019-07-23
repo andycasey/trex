@@ -1,49 +1,44 @@
-data_path: data/sources.hdf5
+# inputs and outputs
+data_path: data/5482.hdf5
 model_path: code/nlnmm-fixed.stan
-results_path: results/{unique_hash}/results.hdf5
+results_path: results/{unique_hash}/results-5482.hdf5
 
+# reproducibility
+random_seed: 0
+
+# multiprocessing
 multiprocessing: true
 processes: 50
-check_finite: true
-suppress_stan_output: true
-random_seed: 0
-number_of_sources_for_gaussian_process: 100
+
+# scale of data we can afford
+number_of_sources_for_gaussian_process: 1000
 number_of_probability_draws: 100
 
+# debugging
+suppress_stan_output: true
 sample_mixture_model: false
 plot_mixture_model_figures: false
 
 ignore_keywords_when_creating_hash:
   - ignore_keywords_when_creating_hash
   - plot_mixture_model_figures
-  - gp_initial_guesses
+  - rv/gp_initial_guess
+  - ast/gp_initial_guess
   - multiprocessing
   - processes
   - suppress_stan_output
 
-data_bounds:
-  bp_rp: [-0.5, 5]
-  absolute_g_mag: [-15, 15]
-  phot_g_mean_mag: [3, 15]
-
+# model definitions
 models:
-  rv:
-    kdtree_label_names: [bp_rp, absolute_rp_mag, phot_rp_mean_mag]
-    kdtree_maximum_points: 1024
-    kdtree_maximum_radius: [0.5, 1, 1]
-    kdtree_minimum_points: 128
-    kdtree_minimum_radius: [0.1, 0.1, 0.1]
-    kdtree_relative_scales: [0.05, 0.5, 0.5]
-    predictor_label_name: j_rv
-    bounds:
-      theta: [0.5, 1]
-      mu_single: [0.05, 15]
-      sigma_single: [0.025, 5]
-      sigma_multiple: [0.2, 1.6]
-    mu_multiple_scalar: 3
-    tol_sum_sigma: 1000
-    tol_proximity: 0.01
+  # astrometry
   ast:
+    # bounds of the data to consider for this model
+    data_bounds:
+      bp_rp: [-0.5, 5]
+      absolute_g_mag: [-15, 15]
+      phot_g_mean_mag: [3, 15]
+
+    # kdtree settings
     kdtree_label_names: [bp_rp, absolute_g_mag, phot_g_mean_mag]
     kdtree_maximum_points: 1024
     kdtree_maximum_radius: [0.5, 1, 1]
@@ -51,25 +46,60 @@ models:
     kdtree_minimum_radius: [0.1, 0.1, 0.1]
     kdtree_relative_scales: [0.05, 0.5, 0.5]
     predictor_label_name: j_ast
+
+    # mixture model parameter bounds
     bounds:
       theta: [0.5, 1.1]
       mu_single: [0.5, 5]
       sigma_single: [0.025, 1]
       sigma_multiple: [0.1, 2]
+
+    # mixture model parameter settings
     mu_multiple_scalar: 3
     tol_sum_sigma: 1000
-    tol_proximity: 0.01
+    tol_proximity: 0.0001
 
-gp_initial_guesses:
-  ast:
-    theta: [ 0.75642452, -6.15243924, -1.19806002,  1.83805641, -2.08442704]
-    mu_single: [2.11952289, -8.11510261, -1.76705322,  0.66798723, -1.41052901]
-    sigma_single: [0.25855645, -8.2251049 , -1.45272654,  1.18873635, -2.33497652]
-    mu_multiple:  [5.11043008,  5.15561675,  9.13884006,  2.49112459, 13.16006721]
-    sigma_multiple: [0.47961741, -4.33031589, -2.19776114,  0.94046639,  1.08231821]
+    # optionally specify an initial guess for the gaussian process hyperparameters
+    gp_initial_guess:
+      theta: [0.75642452, -6.15243924, -1.19806002, 1.83805641, -2.08442704]
+      mu_single: [2.11952289, -8.11510261, -1.76705322, 0.66798723, -1.41052901]
+      sigma_single: [0.25855645, -8.2251049 , -1.45272654, 1.18873635, -2.33497652]
+      mu_multiple: [5.11043008, 5.15561675, 9.13884006, 2.49112459, 13.16006721]
+      sigma_multiple: [0.47961741, -4.33031589, -2.19776114, 0.94046639, 1.08231821]
+
+  # radial velocity
   rv:
-    theta: [ 0.83360789, -5.06488286, -0.52500445,  2.44143271,  2.1833365 ]
-    mu_single: [0.70799748, -7.11288233, -3.07209803,  1.51100918,  2.56365552]
-    sigma_single: [0.6010562, -7.78274635, -2.40511388,  1.85969737,  3.69525254]
-    mu_multiple: [0.1869771, -3.65507317, -2.80520958,  0.95649974,  1.1112062 ]
-    sigma_multiple: [0.47922389, -6.8655726 , -2.76490369,  0.81800791,  0.83875105]
+    # bounds of the data to consider for this model
+    data_bounds:
+      bp_rp: [-0.5, 5]
+      absolute_g_mag: [-15, 15]
+      phot_g_mean_mag: [3, 15]
+    
+    # kdtree settings
+    kdtree_label_names: [bp_rp, absolute_rp_mag, phot_rp_mean_mag]
+    kdtree_maximum_points: 1024
+    kdtree_maximum_radius: [0.5, 1, 1]
+    kdtree_minimum_points: 128
+    kdtree_minimum_radius: [0.1, 0.1, 0.1]
+    kdtree_relative_scales: [0.05, 0.5, 0.5]
+    predictor_label_name: j_rv
+
+    # mixture model parameter bounds
+    bounds:
+      theta: [0.5, 1]
+      mu_single: [0.05, 15]
+      sigma_single: [0.025, 5]
+      sigma_multiple: [0.2, 1.6]
+
+    # mixture model parameter settings
+    mu_multiple_scalar: 3
+    tol_sum_sigma: 1000
+    tol_proximity: 0.0001
+
+    # optionally specify an initial guess for the gaussian process hyperparameters
+    gp_initial_guess:
+      theta: [0.83360789, -5.06488286, -0.52500445, 2.44143271, 2.1833365]
+      mu_single: [0.70799748, -7.11288233, -3.07209803, 1.51100918, 2.56365552]
+      sigma_single: [0.6010562, -7.78274635, -2.40511388, 1.85969737, 3.69525254]
+      mu_multiple: [0.1869771, -3.65507317, -2.80520958, 0.95649974, 1.1112062]
+      sigma_multiple: [0.47922389, -6.8655726, -2.76490369, 0.81800791, 0.83875105]

@@ -7,15 +7,21 @@ from astropy.io import fits
 from astropy.table import Table
 
 
-here = os.path.dirname(__file__)
+
 
 hdu = 1
-input_path = os.path.join(here, "gaia-sources-for-npm.fits")
-output_path = os.path.join(here, "sources.hdf5")
+memmap = True
+basename = "5482"
+
+here = os.path.dirname(__file__)
+
+input_path = os.path.join(here, f"{basename}.fits")
+output_path = os.path.join(here, f"{basename}.hdf5")
 
 print(f"Reading in {input_path} and creating {output_path}")
 
 ignore_parameters = [
+    "designation", # A string added by CosmoHub. No wonder the file is 11 GB!
     # The 'phot_variable_flag' is all filled with 'NOT_AVAILABLE' and it will
     # kill your CPU if you don't ignore it.
     "phot_variable_flag", 
@@ -41,8 +47,14 @@ with h5.File(output_path, "w") as h:
 
     group = h.create_group("sources")
 
-    with fits.open(input_path) as image:
-        for parameter_name in tqdm(image[hdu].columns.names):
+    with fits.open(input_path, memmap=memmap) as image:
+
+        print("Parameter names:")
+        parameter_names = image[hdu].columns.names
+        for i, parameter_name in enumerate(parameter_names):
+            print(f"{i: >3.0f}: {parameter_name}")
+        
+        for parameter_name in tqdm(parameter_names):
             if parameter_name not in ignore_parameters: 
                 group.create_dataset(parameter_name, data=image[hdu].data[parameter_name])
 
