@@ -1,9 +1,23 @@
 .gitignore
 __pycache__
+.DS_Store
 
 *.pyc
 *.stan.cached
 data/*.fits
 data/*.hdf5
+data/catalogs
 
 results/
+
+article/vc.tex
+article/*.aux
+article/*.bbl
+article/*.blg
+article/*.out
+article/*.pdf
+article/*.gz
+article/*.log
+article/_minted-*/
+
+literature/
