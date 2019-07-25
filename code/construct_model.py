@@ -23,6 +23,7 @@ from scipy import optimize as op
 from scipy.special import logsumexp
 from shutil import copyfile
 from glob import glob
+from copy import deepcopy
 
 from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
@@ -64,9 +65,9 @@ if __name__ == "__main__":
     logger.info(f"Config path: {config_path} with seed {random_seed}")
 
     # Generate a unique hash.
-    config_copy = config.copy()
+    config_copy = deepcopy(config)
     for k in config_copy.pop("ignore_keywords_when_creating_hash", []):
-        if k in config_copy: 
+        if k in config_copy:
             del config_copy[k]
 
         else:
@@ -126,7 +127,7 @@ if __name__ == "__main__":
     plot_mixture_model_figures = config.get("plot_mixture_model_figures", False)
     figures_dir = os.path.join(results_dir, "figures")
     os.makedirs(figures_dir, exist_ok=True)
-    
+
     # Sampling.
     sampling = config.get("sample_mixture_model", False)
 
@@ -180,9 +181,9 @@ if __name__ == "__main__":
         X, Y = Z[data_mask, :-1], Z[data_mask, -1]
         S = sources["source_id"][()][data_mask]
 
-        
+
         logger.info(f"Building K-D tree with N = {X.shape[0]}, D = {X.shape[1]}...")
-        kdt, scales, offsets = npm.build_kdtree(X, 
+        kdt, scales, offsets = npm.build_kdtree(X,
                 relative_scales=model_config["kdtree_relative_scales"])
 
         kdt_kwds = dict(offsets=offsets, scales=scales, full_output=True)
@@ -257,12 +258,12 @@ if __name__ == "__main__":
                     else:
                         if p_opt is not None:
                             p_opts.append(p_opt["par"])
-                            
+
                             ln_probs.append(utils.ln_prob(y, 1, *utils._pack_params(**p_opt["par"]), bounds=bounds))
 
                             assert abs(ln_probs[-1] - p_opt["value"]) < 1e-8
 
-                        
+
                 try:
                     p_opt
 
@@ -321,7 +322,7 @@ if __name__ == "__main__":
 
                 # (1) a log-density of the HRD + the selected ball points
                 # (2) a log-density of colour vs apparent magnitude + the selected ball points
-                # (3) the jitter + fitted parameters 
+                # (3) the jitter + fitted parameters
 
                 if sampling:
 
@@ -371,7 +372,7 @@ if __name__ == "__main__":
 
                     figure_path = os.path.join(figures_dir, f"{model_name}-{source_id}.png")
 
-                    
+
                     x_upper = 2 * config["models"][model_name]["bounds"]["mu_single"][1]
                     bins = np.linspace(0, x_upper, 51)
 
@@ -423,7 +424,7 @@ if __name__ == "__main__":
 
                 if debug:
 
-                    # Create 
+                    # Create
                     raise a
 
                 return (index, p_opt, meta)
@@ -443,10 +444,10 @@ if __name__ == "__main__":
                     pbar.update()
 
                     done[j] = True
-                    
+
                     if result is not None:
                         npm_results[j] = utils._pack_params(**result)
-                         
+
             return None
 
 
@@ -485,7 +486,7 @@ if __name__ == "__main__":
                     except:
                         logger.exception(f"Exception when optimizing on {index}")
                         out_queue.put((j, index, None, dict()))
-                    
+
                     else:
                         out_queue.put((j, index, result, meta))
 
@@ -552,8 +553,8 @@ if __name__ == "__main__":
         tol_proximity = model_config["tol_proximity"]
 
         parameter_names = (
-            "theta", 
-            "mu_single", "sigma_single", 
+            "theta",
+            "mu_single", "sigma_single",
             "mu_multiple", "sigma_multiple")
 
         lower_bounds = np.array([model_config["bounds"].get(k, [-np.inf])[0] for k in parameter_names])
@@ -564,7 +565,7 @@ if __name__ == "__main__":
             sigma = np.abs(npm_results - np.median(npm_results, axis=0)) \
                   / np.std(npm_results, axis=0)
             sigma = np.sum(sigma, axis=1)
-            
+
             # Only care about indices 1 and 2
             lower_bounds[3:] = -np.inf
             upper_bounds[3:] = +np.inf
@@ -581,7 +582,7 @@ if __name__ == "__main__":
             not_ok = not_ok_sigma
 
             done[not_ok] = False
-            sp_swarm(*npm_indices[not_ok], 
+            sp_swarm(*npm_indices[not_ok],
                      inits=[np.median(npm_results[~not_ok], axis=0), "random"],
                      debug=False)
 

@@ -11,7 +11,7 @@ multiprocessing: true
 processes: 50
 
 # scale of data we can afford
-number_of_sources_for_gaussian_process: 1000
+number_of_sources_for_gaussian_process: 10000
 number_of_probability_draws: 100
 
 # debugging
@@ -22,8 +22,8 @@ plot_mixture_model_figures: false
 ignore_keywords_when_creating_hash:
   - ignore_keywords_when_creating_hash
   - plot_mixture_model_figures
-  - rv/gp_initial_guess
-  - ast/gp_initial_guess
+  - models/rv/gp_initial_guess
+  - models/ast/gp_initial_guess
   - multiprocessing
   - processes
   - suppress_stan_output
