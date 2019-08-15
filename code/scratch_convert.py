@@ -1,9 +1,13 @@
 
 
 import h5py as h5
+import sys
 
-old_path = "../results/rc.1/results-5482.hdf5"
-new_path = "../results/rc.1/results-5482.h5"
+old_path = sys.argv[1]
+new_path = sys.argv[1].replace(".hdf5", ".h5")
+
+#old_path = "../results/rc.1/results-5482.hdf5"
+#new_path = "../results/rc.1/results-5482.h5"
 
 old = h5.File(old_path, "r")
 new = h5.File(new_path, "w")

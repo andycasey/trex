@@ -21,6 +21,7 @@ from time import (sleep, time)
 from astropy.io import fits
 from scipy import optimize as op
 from scipy.special import logsumexp
+from scipy.stats import binned_statistic_dd
 from shutil import copyfile
 from glob import glob
 from copy import deepcopy
@@ -175,12 +176,40 @@ if __name__ == "__main__":
                 logger.info(f"Restricting to sources with {parameter_name}: [{lower:.1f}, {upper:.1f}]")
 
         data_indices = np.where(data_mask)[0]
-        npm_indices = np.random.choice(data_indices.size, M, replace=False)
+
 
         Z = np.vstack([sources[ln][()] for ln in lns]).T
         X, Y = Z[data_mask, :-1], Z[data_mask, -1]
         S = sources["source_id"][()][data_mask]
 
+        coreset_method = model_config.get("coreset_method", "random")
+        logger.info(f"Generating coreset using {coreset_method} method")
+
+
+        if coreset_method == "random":
+            npm_indices = np.random.choice(data_indices.size, M, replace=False)
+
+        elif coreset_method == "grid":
+
+            num_bins = int(np.ceil(M**(1.0/X.shape[1])))
+
+            M = num_bins**X.shape[1]
+
+            bins = np.percentile(X, np.linspace(0, 100, 1 + num_bins), axis=0).T
+
+            # Select random from each permutation?
+            H, _, binnumber = binned_statistic_dd(X, 1, statistic="count", bins=bins)
+
+            npm_indices = np.zeros(M, dtype=int)
+
+            for i, bn in enumerate(tqdm.tqdm(set(binnumber))):
+                npm_indices[i] = np.random.choice(np.where(binnumber == bn)[0], size=1)
+
+        else:
+            raise NotImplementedError("unrecognised coreset method")
+
+
+        
 
         logger.info(f"Building K-D tree with N = {X.shape[0]}, D = {X.shape[1]}...")
         kdt, scales, offsets = npm.build_kdtree(X,
@@ -624,11 +653,14 @@ if __name__ == "__main__":
             ax.scatter(X[npm_indices, 0][not_ok], X[npm_indices, 1][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
                 **kwds)
 
-            a[1].scatter(X[npm_indices, 0], X[npm_indices, 2], c=npm_results.T[i], s=1, **kwds)
-            a[1].scatter(X[npm_indices, 0][not_ok], X[npm_indices, 2][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
-                **kwds)
+            try:
+                a[1].scatter(X[npm_indices, 0], X[npm_indices, 2], c=npm_results.T[i], s=1, **kwds)
+                a[1].scatter(X[npm_indices, 0][not_ok], X[npm_indices, 2][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
+                    **kwds)
+
+            except IndexError:
+                None
 
             for ax in a:
                 ax.set_ylim(ax.get_ylim()[::-1])
             cbar = plt.colorbar(scat)
-

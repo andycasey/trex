@@ -32,38 +32,7 @@ overwrite = True
 
 if __name__ == "__main__":
 
-    #config_path = sys.argv[1]
-
-    """
-    with open(config_path, "r") as fp:
-        config = yaml.load(fp, Loader=yaml.Loader)
-
-    pwd = os.path.dirname(config_path)
-
-    random_seed = int(config["random_seed"])
-    np.random.seed(random_seed)
-
-    logger.info(f"Config path: {config_path} with seed {random_seed}")
-
-    # Generate a unique hash.
-    config_copy = config.copy()
-    for k in config_copy.pop("ignore_keywords_when_creating_hash", []):
-        if k in config_copy: 
-            del config_copy[k]
-
-    unique_hash = md5((f"{config_copy}").encode("utf-8")).hexdigest()[:5]
-    logger.info(f"Unique hash: {unique_hash}")
-
-
-    # Load data.
-    data_path = os.path.join(pwd, config["data_path"])
-    data = h5.File(data_path, "r")
-    sources = data["sources"]
-    """
-
-    
     # Load in the results path.
-    #results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
     results_path = sys.argv[1]
     results_dir = os.path.dirname(results_path)
 

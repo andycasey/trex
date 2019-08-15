@@ -63,15 +63,13 @@ if __name__ == "__main__":
 
     config = yaml.load(results.attrs["config"], Loader=yaml.Loader)
 
-    random_seed = int(config["random_seed"])
-    np.random.seed(random_seed)
+    np.random.seed(int(config["random_seed"]))
 
     # Load data.
     pwd = os.path.dirname(results.attrs["config_path"]).decode("utf-8")
     data_path = os.path.join(pwd, config["data_path"])
     data = h5.File(data_path, "r")
     sources = data["sources"]
-
 
     # Create a results group where we will combine results from different models.
     if "results" in results:
@@ -95,7 +93,20 @@ if __name__ == "__main__":
     group.create_dataset("source_id", data=source_ids)
     group.create_dataset("source_indices", data=source_indices)
 
-    kw = dict(shape=(len(source_ids), ), dtype=float, fillvalue=np.nan)
+    M, N = (len(model_names), len(source_ids))
+    kw = dict(shape=(N, ), dtype=float, fillvalue=np.nan)
+
+    # Because we track the order when things are created, let's do it in a sensible way.
+
+    for model_name in model_names:
+        predictor_label_name = config["models"][model_name]["predictor_label_name"]
+        group.create_dataset(predictor_label_name, data=sources[predictor_label_name][()][source_indices])
+
+
+    for model_name in model_names:
+        for suffix in ("theta", "mu_single", "sigma_single", "sigma_multiple"):
+            group.create_dataset(f"{model_name}_{suffix}",
+                                 shape=(N, 2), dtype=float, fillvalue=np.nan)
 
     prefixes = ("ll", "p", "bf")
     ignore = ["p_multiple", "bf_single"] \
@@ -103,6 +114,7 @@ if __name__ == "__main__":
            + [f"p_{mn}_multiple" for mn in model_names]
 
     names = []
+
     for prefix in prefixes:
 
         for model_name in model_names:
@@ -114,221 +126,133 @@ if __name__ == "__main__":
         for suffix in ("single", "multiple"):
             names.append(f"{prefix}_{suffix}")
 
+    names.extend(["K", "K_err"])
     for name in names:
         if name not in ignore:
             group.create_dataset(name, **kw)
 
-
-
-
-    M = len(config["models"])
+    # OK let's start calculating shit
     for m, (model_name, model_config) in enumerate(config["models"].items()):
         logger.info(f"Running {model_name} model")
 
         predictor_label_name = model_config["predictor_label_name"]
-
-        
+       
         model_source_indices = results[f"models/{model_name}/gp_predictions/source_indices"][()]
         y = sources[predictor_label_name][()][model_source_indices]
 
-        w, w_var = results[f"models/{model_name}/gp_predictions/theta"][()].T
-        mu_s, mu_s_var = results[f"models/{model_name}/gp_predictions/mu_single"][()].T
-        sigma_s, sigma_s_var = results[f"models/{model_name}/gp_predictions/sigma_single"][()].T
-        sigma_m, sigma_m_var = results[f"models/{model_name}/gp_predictions/sigma_multiple"][()].T
-
+        # Get predictions from our GPs
+        theta = results[f"models/{model_name}/gp_predictions/theta"][()]
+        mu_single = results[f"models/{model_name}/gp_predictions/mu_single"][()]
+        sigma_single = results[f"models/{model_name}/gp_predictions/sigma_single"][()]
+        sigma_multiple = results[f"models/{model_name}/gp_predictions/sigma_multiple"][()]
 
         scalar = model_config["mu_multiple_scalar"]
         with warnings.catch_warnings(): 
             # I'll log whatever number I want python you can't tell me what to do
             warnings.simplefilter("ignore") 
 
-            mu_m = np.log(mu_s + scalar * sigma_s) + sigma_m**2
+            mu_multiple = np.log(mu_single.T[0] + scalar * sigma_single.T[0]) \
+                        + sigma_multiple.T[0]**2
             
-            ln_s = np.log(w) + utils.normal_lpdf(y, mu_s, sigma_s)
-            ln_m = np.log(1-w) + utils.lognormal_lpdf(y, mu_m, sigma_m)
+            ln_s = np.log(theta.T[0]) + utils.normal_lpdf(y, mu_single.T[0], sigma_single.T[0])
+            ln_m = np.log(1-theta.T[0]) + utils.lognormal_lpdf(y, mu_multiple, sigma_multiple.T[0])
 
             lp = np.array([ln_s, ln_m]).T
 
             p_single = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))
 
+            # calc bayes factor
             bf = np.exp(ln_m - ln_s)
 
         # Translate values.
         a_idx, b_idx = _cross_match(source_indices, model_source_indices)
 
-        ll_single = group[f"ll_{model_name}_single"][()]
-        ll_single[a_idx] = ln_s[b_idx]
+        # Some issue with writing to hdf5 files using indices that I cbf figuring out.
+        def _update_sources(name, array):
+            __ = np.nan * np.ones(N)
+            __[a_idx] = array[b_idx]
+            results[name][:] = __
 
-        ll_multiple = group[f"ll_{model_name}_multiple"][()]
-        ll_multiple[a_idx] = ln_m[b_idx]
+        _update_sources(f"results/ll_{model_name}_single", ln_s)
+        _update_sources(f"results/ll_{model_name}_multiple", ln_m)
+        _update_sources(f"results/p_{model_name}_single", p_single)
+        _update_sources(f"results/bf_{model_name}_multiple", bf)
 
-        ps = group[f"p_{model_name}_single"][()]
-        ps[a_idx] = p_single[b_idx]
+        def _update_gp_predictions(name, array):
+            __ = np.nan * np.ones((N, 2))
+            __[a_idx] = array[:]
+            results[name][:] = __
 
-        bfs = group[f"bf_{model_name}_multiple"][()]
-        bfs[a_idx] = bf[b_idx]
-
-
-
-    raise a
-
+        _update_gp_predictions(f"results/{model_name}_theta", theta)
+        _update_gp_predictions(f"results/{model_name}_mu_single", mu_single)
+        _update_gp_predictions(f"results/{model_name}_sigma_single", sigma_single)
+        _update_gp_predictions(f"results/{model_name}_sigma_multiple", sigma_multiple)
 
     # Calculate joint ratios.
-    model_names = list(config["models"].keys())
-    
     if len(model_names) > 1:
 
-        # Calculate joint likelihood ratio.
-        kw = dict(shape=(len(model_names), sources["source_id"].size), dtype=float)
-        ln_s = np.nan * np.ones(**kw)
-        ln_m = np.nan * np.ones(**kw)
+        logger.info("Calculating joint properties")
 
-        for i, model_name in enumerate(model_names):
-            data_indices = results[f"{model_name}/data_indices"]
-            ln_s[i, data_indices] = results[f"model_selection/likelihood/{model_name}/single"][()]
-            ln_m[i, data_indices] = results[f"model_selection/likelihood/{model_name}/multiple"][()]
+        # Calculate the following things:
+        # - ll_single
+        # - ll_multiple
+        # - p_single
+        # - bf_multiple
 
-        ln_s = np.nansum(ln_s, axis=0)
-        ln_m = np.nansum(ln_m, axis=0)
+        LOG_SMALL = -1000
+        SUM_SMALL = LOG_SMALL + np.log(2) + 1e-15
+
+        ln_s = np.array([results[f"results/ll_{mn}_single"][()] for mn in model_names])
+        ln_s[~np.isfinite(ln_s)] = LOG_SMALL
+        
+        ln_m = np.array([results[f"results/ll_{mn}_multiple"][()] for mn in model_names])
+        ln_m[~np.isfinite(ln_m)] = LOG_SMALL
+        
+        ln_s = special.logsumexp(ln_s, axis=0)
+        ln_m = special.logsumexp(ln_m, axis=0)
+
+        results["results/ll_single"][:] = ln_s
+        results["results/ll_multiple"][:] = ln_m
 
         lp = np.array([ln_s, ln_m]).T
 
-        with np.errstate(under="ignore"):
-            ratio = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
 
-        dataset_name = "model_selection/likelihood/joint_ratio_single"
-        if dataset_name in results:
-            del results[dataset_name]
+            results["results/p_single"][:] = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))
+            results["results/bf_multiple"][:] = np.exp(ln_m - ln_s)
 
-        no_info = (ln_s == 0) & (ln_m == 0)
-        ratio[no_info] = np.nan
+        """
+        no_data = (lp.T[0] == lp.T[1]) # knows nothing
+        lp[no_data] = np.nan
+        p_single[no_data] = np.nan
+        """
 
-        results.create_dataset(dataset_name, data=ratio)
 
-    # Calculate excess K
+    # Calculate radial velocity excess
     if "rv" in model_names:
-
         model_config = config["models"]["rv"]
 
-        logger.info("Calculating excess K in 'rv' model")
-        
-        rv_jitter = sources[model_config["predictor_label_name"]][()][data_indices]
-        rv_nb_transits = sources["rv_nb_transits"][()][data_indices]
+        logger.info("Estimating radial velocity semi-amplitude")
 
-        K_est = np.sqrt(2) * rv_jitter
+        source_indices = results["results"]["source_indices"][()]
+
+        rv_jitter = sources[model_config["predictor_label_name"]][()][source_indices]
+        rv_nb_transits = sources["rv_nb_transits"][()][source_indices]
+
+        K = np.sqrt(2) * rv_jitter
 
         # Add formal errors.
         N = rv_nb_transits
-        e_K_est = K_est * np.sqrt(1 - (2/(N-1)) * (special.gamma(N/2)/special.gamma((N-1)/2))**2)
+        K_err = K * np.sqrt(1 - (2/(N-1)) * (special.gamma(N/2)/special.gamma((N-1)/2))**2)
 
-        dataset_name = "rv/gp_predictions/K"
-        if dataset_name in results:
-            del results[dataset_name]
-        results.create_dataset(dataset_name, data=np.vstack([K_est, e_K_est]).T)
-    
-    #
-    if False:
-        logger.info("Calculating ratio draws")
+        results["results/K"][:] = K
+        results["results/K_err"][:] = K_err
 
-
-        # Calculate draws.
-        D = 16 # number of draws per source
-        B = 10000 # batch size
-        M = len(model_names)
-        N = len(data_indices)
-        num_batches = int(np.ceil(N / B))
-
-        # Pre-store y.
-        y = np.nan * np.zeros((N, M))
-        gn = "ratios"
-        if gn in results:
-            del results[gn]
-
-        ratios = results.create_group(gn)
-        
-        for j, model_name in enumerate(model_names):
-            predictor_label_name = config["models"][model_name]["predictor_label_name"]
-            y[:, j] = sources[predictor_label_name][()][data_indices]
-
-            ratios.create_dataset(model_name, shape=(N, D), dtype=float)
-
-        ratios.create_dataset("joint", shape=(N, D), dtype=float)
-
-        logger.info("Evaluating ratio draws")
-
-
-        SMALL = 1e-15
-        for i in tqdm(range(num_batches)):
-
-            si, ei = i * B, (i + 1) * B
-
-            ln = np.nan * np.ones((y.shape[0], D, M, 2))
-            
-            for j, model_name in enumerate(model_names):
-
-                scalar = config["models"][model_name]["mu_multiple_scalar"]
-
-                w, w_var = results[f"{model_name}/gp_predictions/theta"][()][si:ei].T
-                mu_s, mu_s_var = results[f"{model_name}/gp_predictions/mu_single"][()][si:ei].T
-                sigma_s, sigma_s_var = results[f"{model_name}/gp_predictions/sigma_single"][()][si:ei].T
-                sigma_m, sigma_m_var = results[f"{model_name}/gp_predictions/sigma_multiple"][()][si:ei].T
-                
-
-                # Do the draws.
-                B = w.size
-                w_ = np.random.normal(w, w_var**0.5, size=(D, B))
-                mu_s_ = np.random.normal(mu_s, mu_s_var**0.5, size=(D, B))
-                sigma_s_ = np.random.normal(sigma_s, sigma_s_var**0.5, size=(D, B))
-                sigma_m_ = np.random.normal(sigma_m, sigma_m_var**0.5, size=(D, B))
-
-                w_ = np.clip(w_, SMALL, 1 - SMALL)
-                # TODO: Clip other values to their bounds?
-                mu_s_ = np.abs(mu_s_)
-                sigma_m_ = np.abs(sigma_m_)
-                sigma_s_ = np.abs(sigma_s_)
-
-
-                # TODO: don't always fix it.
-                mu_m_ = np.log(mu_s_ + scalar * sigma_s_) + sigma_m_**2
-
-                ln[:, :, j, 0] = (np.log(w_) + utils.normal_lpdf(y[si:ei, j], mu_s_, sigma_s_)).T
-                ln[:, :, j, 1] = (np.log(1-w_) + utils.lognormal_lpdf(y[si:ei, j], mu_m_, sigma_m_)).T
-
-                with np.errstate(under="ignore"):
-                    results[f"ratios/{model_name}"][si:ei, :] = np.exp(ln[:, :, j, 0] - special.logsumexp(ln[:, :, j], axis=2))
-
-                assert np.all(np.isfinite(results[f"ratios/{model_name}"][si:ei]))
-
-                # TODO: Check if y < mu_s that it is definitely a single star.
-
-
-            # Calc likelihoods all together.
-            _ = special.logsumexp(ln, axis=2)
-            results["ratios/joint"][si:ei, :] = np.exp(_[:, :, 0] - special.logsumexp(_, axis=2))
-
-            """
-            idx = 400
-
-            def plotit(idx, bins=None):
-
-                fig, axes = plt.subplots(3)
-                if bins is None:
-                    bins = np.linspace(0, 1, 51)
-
-                axes[0].hist(results["ratios/rv"][idx], bins=bins)
-                axes[1].hist(results["ratios/ast"][idx], bins=bins)
-                axes[2].hist(results["ratios/joint"][idx], bins=bins)
-
-                return fig 
-
-            fig = plotit(400)
-
-            raise a
-            """
-
-            # TODO Store likelihoods?
-        
     else:
-        logger.info("Not calculating ratio draws!")
+        logger.warn("Not estimating radial velocity semi-amplitude because no 'rv' model")
 
-    results.close()
+
+data.close()
+results.close()
+logger.info("Fin")
