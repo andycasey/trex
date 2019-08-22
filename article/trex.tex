@@ -337,7 +337,13 @@ $w$, $\mu_s$, $\sigma_s$, and $\sigma_m$. Standard nomenclature would be to desc
 this as the `data' $\bm{y}$, and $\bm{x}$ is a 1,000 $\times$ 3 matrix of \bp\ - \rp\
 colour, apparent G magnitude, and absolute G magnitude. As a general example we
 will use $\bm{y}$ to describe the noisy estimates of a parameter in $\vec\phi$
-(e.g., $\bm{y} \equiv \vec{\phi}_i$). Omitting constant terms, the Gaussian Process marginalized likelihood 
+(e.g., $\bm{y} \equiv \vec{\phi}_i$). 
+
+%THat is the data are
+
+
+
+Omitting constant terms, the Gaussian Process marginalized likelihood 
 function $\ln \textrm{p}(\bm{y}|\bm{x},\vec{\theta},\vec{\alpha})$ is 
 \begin{eqnarray}
 	\ln\mathcal{L}\left(\vec\theta, \vec\alpha\right) = -\frac{1}{2}\left[\bm{y}-\vec{\mu}_{\vec\theta}\right]^\mathrm{T}\vec{K_\alpha}^{-1}\left[\bm{y}-\vec{\mu_\theta}\right] - \frac{1}{2}\ln\det\vec{K_\alpha} \nonumber \\
