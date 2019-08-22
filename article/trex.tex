@@ -332,9 +332,9 @@ This normally limits the use of Gaussian Processes to small data sets. Optimizin
 remains possible for larger data sets (e.g., $N \sim 10^3$), but posterior sampling quickly
 becomes computationally intractable.
 
-A separate Gaussian process is required for each of our parameters in $\vec\phi$:
+A separate Gaussian Process model is required for each of our parameters in $\vec\phi$:
 $w$, $\mu_s$, $\sigma_s$, and $\sigma_m$. Standard nomenclature would be to describe
-this as the `data' $\bm{y}$, and $\bm{x}$ a $N \times 3$ matrix of \bp\ - \rp\
+this as the `data' $\bm{y}$, and $\bm{x}$ is a 1,000 $\times$ 3 matrix of \bp\ - \rp\
 colour, apparent G magnitude, and absolute G magnitude. As a general example we
 will use $\bm{y}$ to describe the noisy estimates of a parameter in $\vec\phi$
 (e.g., $\bm{y} \equiv \vec{\phi}_i$). Omitting constant terms, the Gaussian Process marginalized likelihood 

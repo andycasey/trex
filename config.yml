@@ -34,16 +34,16 @@ models:
     # bounds of the data to consider for this model
     data_bounds:
       bp_rp: [-0.5, 5]
-      #absolute_g_mag: [-15, 15]
+      absolute_g_mag: [-15, 15]
       phot_g_mean_mag: [3, 15]
 
     # kdtree settings
-    kdtree_label_names: [bp_rp, phot_g_mean_mag]
+    kdtree_label_names: [bp_rp, absolute_g_mag, phot_g_mean_mag]
     kdtree_maximum_points: 1024
-    kdtree_maximum_radius: [0.5, 1]
+    kdtree_maximum_radius: [0.5, 1, 1]
     kdtree_minimum_points: 128
-    kdtree_minimum_radius: [0.1, 0.1]
-    kdtree_relative_scales: [0.05, 0.5]
+    kdtree_minimum_radius: [0.1, 0.1, 0.1]
+    kdtree_relative_scales: [0.05, 0.5, 0.5]
     predictor_label_name: j_ast
 
     coreset_method: grid
@@ -51,7 +51,7 @@ models:
     # mixture model parameter bounds
     bounds:
       theta: [0.5, 1.1]
-      mu_single: [0.25, 5]
+      mu_single: [0.25, 0]
       sigma_single: [0.025, 1]
       sigma_multiple: [0.1, 2]
 
@@ -91,7 +91,7 @@ models:
     bounds:
       theta: [0.5, 1]
       mu_single: [0.05, 15]
-      sigma_single: [0.025, 5]
+      sigma_single: [0.25, 5]
       sigma_multiple: [0.2, 1.6]
 
     # mixture model parameter settings
