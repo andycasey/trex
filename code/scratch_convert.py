@@ -48,6 +48,7 @@ for model_name in ("ast", "rv"):
 
     for k in ("theta", "mu_single", "sigma_single", "sigma_multiple"):
         f = gp_model.create_group(k, track_order=True)
+        f.attrs.update(dict(old["{model_name}/gp/{k}"].attrs))
 
         for u in "XY":
             f.create_dataset(u, data=old[model_name]["gp"][k][u][()])

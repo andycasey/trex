@@ -8,6 +8,9 @@ import functools
 import numpy as np
 import h5py as h5
 import pickle
+import yaml
+import warnings
+import george
 from astropy.table import Table
 from astropy import units as u
 from astropy.time import Time
@@ -18,6 +21,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
 import twobody
+import utils
 
 def simulate_rv_jitter(Ks, Ps, N, observing_span, rv_nb_transits_callable=None, varphi_callable=None, 
                        intrinsic_rv_error_callable=None, time_observed_callable=None):
@@ -95,7 +99,7 @@ def plot_simulated_rv_jitter(Ks, Ps, v_stds, data=None, observing_span=None,
 
         contour_args = (Ps, Ks, (Z >= upper_detection_bound.to(u.km/u.s).value).astype(int))
         #ax.contourf(*contour_args, 3, hatches=['', 'xx'], lw=0.5, colors="white", alpha=0)
-        ax.contour(*contour_args, 1, lw=1.5, colors=limit_color)
+        ax.contour(*contour_args, 0, lw=1.5, colors=limit_color)
 
     if lower_detection_bound is not None:
         ax.axhline(lower_detection_bound.to(u.km/u.s).value, **line_kwds)
@@ -151,7 +155,7 @@ def plot_crude_rv_detection_efficiency(Ks, Ps, v_stds, Ts, p_detectable_callable
         ZZ = np.mean(v_stds, axis=1).reshape((Ks.size, Ps.size))
         contour_args = (Ps, Ks, (ZZ >= upper_detection_bound.to(u.km/u.s).value).astype(int))
         #ax.contourf(*contour_args, 3, hatches=['', 'xx'], lw=0.5, colors="white", alpha=0)
-        ax.contour(*contour_args, 1, lw=1.5, colors=limit_color)
+        ax.contour(*contour_args, 0, lw=1.5, colors=limit_color)
 
     if lower_detection_bound is not None:
         ax.axhline(lower_detection_bound.to(u.km/u.s).value, **line_kwds)
@@ -411,7 +415,18 @@ if __name__ == "__main__":
 
     here = os.path.dirname(__file__)
 
-    do_rv_detection_efficiency = False
+    results = h5.File("../results/rc.7/results-5482.h5", "r")
+
+    config = yaml.load(results.attrs["config"], Loader=yaml.Loader)
+
+    pwd = os.path.dirname(results.attrs["config_path"]).decode("utf-8")
+    data_path = os.path.join(pwd, config["data_path"])
+    data = h5.File(data_path, "r")
+    sources = data["sources"]
+
+
+
+    do_rv_detection_efficiency = True
     do_ast_detection_efficiency = False
 
     np.random.seed(42)
@@ -419,7 +434,7 @@ if __name__ == "__main__":
     log_P_min, log_P_max = (-1.5, 6) # log_10(P / day)
     log_K_min, log_K_max = (-0.5, 3) # log_10(K / km/s)
 
-    N_rv_bins = 25 # number of bins to do in P and K
+    N_rv_bins = 50 # number of bins to do in P and K
     N_rv_sims = 100 # number of simulations to do per P, K bin
     Ks = np.logspace(log_K_min, log_K_max, N_rv_bins)
     Ps = np.logspace(log_P_min, log_P_max, N_rv_bins)
@@ -459,13 +474,13 @@ if __name__ == "__main__":
 
     if do_rv_detection_efficiency:
 
-        print("Calculating RV detection efficiency!")
+        print("Calculating RV detection efficiency on a grid!")
 
-        v_stds, Ts = simulate_rv_jitter(Ks, Ps, N_rv_sims, observing_span)
+        v_stds, Ts = simulate_rv_jitter(Ks, Ps.value, N_rv_sims, observing_span)
 
         scalar = np.sqrt(16.5 * np.pi * 2)
         scalar = 1.5 * np.sqrt(2 * np.pi) 
-        lower_detection_bound = 0.5 * u.km/u.s
+        lower_detection_bound = 1 * u.km/u.s
         upper_detection_bound = 20 * scalar * u.km / u.s 
 
         def p_detectable(v_std, Ts, a=15, b=1.5, c=0.5):
@@ -476,16 +491,153 @@ if __name__ == "__main__":
 
         data = Table.read("../data/Pourbaix-et-al-sb9-subset.csv")
 
-        fig = plot_simulated_rv_jitter(Ks, Ps, v_stds,
+        fig = plot_simulated_rv_jitter(Ks, Ps.value, v_stds,
                                        data=data, observing_span=observing_span,
                                        lower_detection_bound=lower_detection_bound,
                                        upper_detection_bound=upper_detection_bound)
 
-        fig = plot_crude_rv_detection_efficiency(Ks, Ps, v_stds, Ts,
+        fig = plot_crude_rv_detection_efficiency(Ks, Ps.value, v_stds, Ts,
                                                  p_detectable_callable=p_detectable,
                                                  data=data, observing_span=observing_span,
                                                  lower_detection_bound=lower_detection_bound,
                                                  upper_detection_bound=upper_detection_bound)
+
+
+        # Now let us make draws from what we really think are representative.
+        def draw_periods(N, log_P_mu=4.8, log_P_sigma=2.3, log_P_min=-2, log_P_max=12):
+
+            # orbital period Duquennoy and Mayor 1991 distribution
+            P = np.empty(N)
+            P_min, P_max = (10**log_P_min, 10**log_P_max)
+
+            for i in range(N):
+                while True:
+                    x = np.random.lognormal(log_P_mu, log_P_sigma)
+                    if P_max >= x >= P_min:
+                        P[i] = x
+                        break
+            return P
+
+        foo = np.log10(np.array([data[ln] for ln in ("K1", "Per")]))
+        foo = foo[:, foo[0] > -0.25]
+        mu = np.mean(foo, axis=1)
+        rho = np.corrcoef(foo)
+        var = np.atleast_2d(np.var(foo, axis=1))
+
+        # inflate variance
+        var *= 5
+        cov = np.sqrt(var) * rho * np.sqrt(var).T
+        #cov = np.cov(foo)
+
+        draws = np.random.multivariate_normal(mu, cov, 1000)
+
+        fig, ax = plt.subplots()
+        ax.scatter(foo[0], foo[1], c='k')
+        ax.scatter(draws.T[0], draws.T[1], c='#666666', alpha=0.5)
+
+
+
+        # inflate variance
+        N = 1000
+        periods = draw_periods(1000)
+
+        for p in periods:
+            ax.axvline(np.log10(p), c="b", alpha=0.1, lw=0.5)
+
+        # Assign K values to periods.
+        Ks = np.zeros_like(periods)
+        for i, period in enumerate(periods):
+            idx = np.argmin(np.abs(np.log10(period) - draws.T[0]))
+            Ks[i] = 10**draws[idx, 1]
+            draws[idx, 0] = -100
+
+        fig, ax = plt.subplots()
+        ax.scatter(periods, Ks)
+        ax.loglog()
+
+
+
+
+
+
+        raise a
+
+
+        # Use *mean* RV detection efficiency.
+        theta, _ = np.mean(results["models/rv/gp_predictions/theta"][()], axis=0)
+        mu_single, _ = np.mean(results["models/rv/gp_predictions/mu_single"][()], axis=0)
+        sigma_single, _ = np.mean(results["models/rv/gp_predictions/sigma_single"][()], axis=0)
+        sigma_multiple, _ = np.mean(results["models/rv/gp_predictions/sigma_multiple"][()], axis=0)
+
+
+        def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple_scalar):
+
+            with warnings.catch_warnings(): 
+                # I'll log whatever number I want python you can't tell me what to do
+                warnings.simplefilter("ignore") 
+
+                mu_multiple = np.log(mu_single + mu_multiple_scalar * sigma_single) + sigma_multiple**2
+                
+                ln_s = np.log(theta) + utils.normal_lpdf(y, mu_single, sigma_single)
+                ln_m = np.log(1-theta) + utils.lognormal_lpdf(y, mu_multiple, sigma_multiple)
+
+                # FIX BAD SUPPORT.
+
+                # This is a BAD MAGIC HACK where we are just going to flip things.
+                """
+                limit = mu_single - 2 * sigma_single
+                bad_support = (y <= limit) * (ln_m > ln_s)
+                ln_s_bs = np.copy(ln_s[bad_support])
+                ln_m_bs = np.copy(ln_m[bad_support])
+                ln_s[bad_support] = ln_m_bs
+                ln_m[bad_support] = ln_s_bs
+                """
+                ln_s = np.atleast_1d(ln_s)
+                ln_m = np.atleast_1d(ln_m)
+
+                lp = np.array([ln_s, ln_m]).T
+
+                #assert np.all(np.isfinite(lp))
+
+                p_single = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))
+
+            return (p_single, ln_s, ln_m)
+
+        x = np.sort(v_stds.flatten())
+        p_single, ln_s, ln_m = calc_p_single(x, theta, mu_single, sigma_single, sigma_multiple,
+                                             mu_multiple_scalar=3)
+
+        # Do many draws.
+        K = 100
+        p_single_draws = np.empty((K, p_single.size))
+        Q = len(results["models/rv/gp_predictions/theta"])
+
+        for k in tqdm(range(K), desc="Drawing RVs"):
+            index = np.random.choice(Q)
+            theta = results["models/rv/gp_predictions/theta"][()][index, 0]
+            mu_single = results["models/rv/gp_predictions/mu_single"][()][index, 0]
+            sigma_single = results["models/rv/gp_predictions/sigma_single"][()][index, 0]
+            sigma_multiple = results["models/rv/gp_predictions/sigma_multiple"][()][index, 0]
+
+            p_single_draws[k], *_ = calc_p_single(x, theta, mu_single, sigma_single, sigma_multiple,
+                                                  mu_multiple_scalar=3)
+
+
+
+        fig, ax = plt.subplots()
+        #ax.plot(x, p_single, lw=2, c="#000000")
+        #for k in range(K):
+        #    ax.plot(x, p_single_draws[k], alpha=0.1, c="#666666", lw=1, zorder=-1)
+
+        ax.set_xscale("log")
+        ax.set_ylabel(r"$p(\textrm{single}|\sigma_{rv})$")
+        ax.set_xlabel(r"$\sigma_{rv}$ / km\,s$^{-1}$")
+
+
+        raise a
+
+
+
 
     else:
         print("Not doing RV detection efficiency!")
@@ -511,6 +663,8 @@ if __name__ == "__main__":
     else:
         print("Not doing astrometric detection efficiency!")
 
+
+    raise a
 
     """
     Simulate detection efficiency properly.
@@ -618,8 +772,357 @@ if __name__ == "__main__":
             pickle.dump(dict(q=q, P=P, D=D, M_1=M_1, T=T, ruwe=ruwe), fp)
 
 
-    # Create a histogram of (bp_rp, absolute_g_mag, apparent_g_mag)
-    sources = h5.File("../data/sources.hdf5", "r")
+
+
+    lns = config["models"][model_name]["kdtree_label_names"]
+    X = np.array([sources[ln][()] for ln in lns]).T
+    finite = np.all(np.isfinite(X), axis=1)
+
+    N_data_bins = 20
+    H, edges = np.histogramdd(X[finite], bins=N_data_bins)
+    centroids = [e[:-1] + 0.5 * np.diff(e) for e in edges]
+
+
+    # For each bin, make GP predictions of the bin centroid.
+    parameter_names = list(results[f"models/{model_name}/gp_model"].keys())[2:]
+    gps = {}
+    for parameter_name in parameter_names:
+
+        X = results[f"models/{model_name}/gp_model/{parameter_name}/X"][()]
+        Y = results[f"models/{model_name}/gp_model/{parameter_name}/Y"][()]
+
+        attrs = results[f"models/{model_name}/gp_model/{parameter_name}"].attrs
+
+        metric = np.var(X, axis=0)
+        kernel = george.kernels.ExpSquaredKernel(metric=metric, ndim=metric.size)
+        gp = george.GP(kernel,
+                       mean=np.mean(Y), fit_mean=True,
+                       white_noise=np.log(np.std(Y)), fit_white_noise=True)
+        for p in gp.parameter_names:
+            gp.set_parameter(p, attrs[p])
+
+        gp.compute(X)
+        gps[parameter_name] = (gp, Y)
+
+    # Now make predictions at each centroid.
+    mg = np.array(np.meshgrid(*centroids)).reshape((len(lns), -1)).T
+
+    gp_predictions = np.empty((mg.shape[0], 4, 2))
+    gp_predictions[:] = np.nan
+
+    for i, parameter_name in enumerate(parameter_names):
+
+        gp, Y = gps[parameter_name]
+        p, p_var = gp.predict(Y, mg, return_cov=False, return_var=True)
+        gp_predictions[:, i, 0] = p
+        gp_predictions[:, i, 1] = p_var
+
+        print(i, parameter_name)
+
+    # Calculate the p_single values we would get for all RUWE values, given the
+    # GP predictions in each bin.
+    percentiles = [5, 16, 50, 84, 95]
+
+
+
+    def clipped_predictions(theta, mu_single, sigma_single, sigma_multiple, bounds):
+        theta = np.clip(theta, *bounds["theta"])
+        mu_single = np.clip(mu_single, *bounds["mu_single"])
+        sigma_single = np.clip(sigma_single, *bounds["sigma_single"])
+        sigma_multiple = np.clip(sigma_single, *bounds["sigma_multiple"])
+
+        return np.array([theta, mu_single, sigma_single, sigma_multiple])
+
+
+    def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple_scalar):
+
+        with warnings.catch_warnings(): 
+            # I'll log whatever number I want python you can't tell me what to do
+            warnings.simplefilter("ignore") 
+
+            mu_multiple = np.log(mu_single + mu_multiple_scalar * sigma_single) + sigma_multiple**2
+            
+            ln_s = np.log(theta) + utils.normal_lpdf(y, mu_single, sigma_single)
+            ln_m = np.log(1-theta) + utils.lognormal_lpdf(y, mu_multiple, sigma_multiple)
+
+            # FIX BAD SUPPORT.
+
+            # This is a BAD MAGIC HACK where we are just going to flip things.
+            """
+            limit = mu_single - 2 * sigma_single
+            bad_support = (y <= limit) * (ln_m > ln_s)
+            ln_s_bs = np.copy(ln_s[bad_support])
+            ln_m_bs = np.copy(ln_m[bad_support])
+            ln_s[bad_support] = ln_m_bs
+            ln_m[bad_support] = ln_s_bs
+            """
+            ln_s = np.atleast_1d(ln_s)
+            ln_m = np.atleast_1d(ln_m)
+
+            lp = np.array([ln_s, ln_m]).T
+
+            #assert np.all(np.isfinite(lp))
+
+            p_single = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))
+
+        return (p_single, ln_s, ln_m)
+
+
+    def calc_probs(ys, gp_predictions, bounds, N_draws, percentiles):
+
+        ys = np.atleast_2d(ys)
+        Q, M = ys.shape
+
+        shape = (Q, M + 1, N_draws)
+        obj_p_singles = np.empty(shape)
+        obj_ln_s = np.empty(shape)
+        obj_ln_m = np.empty(shape)
+
+        # gp_predictions has shape M, 4, 2
+        mu = gp_predictions[:, :, 0]
+        var = gp_predictions[:, :, 1]
+
+        for q, ym in enumerate(tqdm(ys)):
+
+            for m, y in enumerate(ym):
+
+                # Do draws for all models
+                _slice = (q, m, slice(0, None))
+                if not np.all(np.isfinite(np.hstack([y, mu[m], var[m]]))):
+                    obj_p_singles[_slice] = np.nan
+                    obj_ln_s[_slice] = np.nan
+                    obj_ln_s[_slice] = np.nan
+                    continue
+
+                draws = clipped_predictions(
+                    *np.random.multivariate_normal(mu[m], np.diag(var[m]), size=N_draws).T, 
+                    bounds[m])
+
+                obj_p_singles[_slice], obj_ln_s[_slice], obj_ln_m[_slice] \
+                    = calc_p_single(y, *draws, mu_multiple_scalar=3)
+
+        # Now calculate the joint probabilities
+        obj_ln_s[:, -1, :] = np.nansum(obj_ln_s[:, :-1, :], axis=1)
+        obj_ln_m[:, -1, :] = np.nansum(obj_ln_m[:, :-1, :], axis=1)
+
+        lp = np.array([obj_ln_s[:, -1, :], obj_ln_m[:, -1, :]])
+
+        obj_p_singles[:, -1, :] = np.exp(lp[0] - special.logsumexp(lp, axis=0))
+
+        # Then calculate percentiles ofthose probabilities.
+        obj_p_singles[~np.isfinite(obj_p_singles)] = -1
+        p = np.percentile(obj_p_singles, percentiles, axis=-1).transpose((1, 0, 2))
+        p[p == -1] = np.nan
+        return p
+
+
+
+    SMALL = 1e-5
+    b = config["models"]["ast"]["bounds"]
+    b.update(theta=[0, 1])
+    b["theta"] = np.array(b["theta"]) + [+SMALL, -SMALL]
+    bounds = [b]
+
+
+    #p_50 = np.memmap("temp.np", dtype=float, mode="w+", shape=(mg.shape[0], len(percentiles)))
+    p_single_50 = np.empty((mg.shape[0], len(percentiles)))
+
+    v = np.atleast_2d(np.random.choice(ruwe.flatten(), 1000)).T
+
+    for i in tqdm(range(mg.shape[0])):
+        foo = calc_probs(v, gp_predictions[[i]], bounds, 128, percentiles)
+
+        raise a
+
+    raise a
+
+
+    # Calculate the p_single values we would get for all RUWE values, given the
+    # GP predictions at that bin.
+
+    # Store either p_50, or something else?
+
+
+
+
+
+    '''
+    # Ignore what follows: I was testing if I could calculate completeness for every source!
+
+
+    def _cross_match(A_source_ids, B_source_ids):
+
+        A = np.array(A_source_ids, dtype=np.long)
+        B = np.array(B_source_ids, dtype=np.long)
+
+        ai = np.where(np.in1d(A, B))[0]
+        bi = np.where(np.in1d(B, A))[0]
+        
+        a_idx, b_idx = (ai[np.argsort(A[ai])], bi[np.argsort(B[bi])])
+
+        # Sanity checks
+        assert a_idx.size == b_idx.size
+        assert np.all(A[a_idx] == B[b_idx])
+        return (a_idx, b_idx)
+
+
+
+
+    print("Preparing for completeness calculations")
+    
+    SMALL = 1e-5
+
+    results = h5.File("../results/rc.7/results-5482.h5", "r")
+
+    config = yaml.load(results.attrs["config"], Loader=yaml.Loader)
+
+    pwd = os.path.dirname(results.attrs["config_path"]).decode("utf-8")
+    data_path = os.path.join(pwd, config["data_path"])
+    data = h5.File(data_path, "r")
+    sources = data["sources"]
+
+
+    N = len(results["results/source_id"])
+    model_names = results["models"].keys()
+
+    # Get all bounds.
+    M = len(model_names)
+
+    # Build some big ass arrays
+    ys = np.empty((N, M))
+    ys[:] = np.nan
+
+    bounds = []
+
+    gp_predictions = np.empty((N, M, 4, 2))
+    gp_predictions[:] = np.nan
+
+    source_indices = results["results"]["source_indices"][()]
+
+    for m, (model_name, model_config) in enumerate(config["models"].items()):
+
+        predictor_label_name = model_config["predictor_label_name"]
+
+        model_source_indices = results[f"models/{model_name}/gp_predictions/source_indices"][()]
+
+        a_idx, b_idx = _cross_match(source_indices, model_source_indices)
+        ys[a_idx, m] = sources[predictor_label_name][()][model_source_indices]
+
+        gp_predictions[a_idx, m, 0] = results[f"models/{model_name}/gp_predictions/theta"][()]
+        gp_predictions[a_idx, m, 1] = results[f"models/{model_name}/gp_predictions/mu_single"][()]
+        gp_predictions[a_idx, m, 2] = results[f"models/{model_name}/gp_predictions/sigma_single"][()]
+        gp_predictions[a_idx, m, 3] = results[f"models/{model_name}/gp_predictions/sigma_multiple"][()]
+
+        b = model_config["bounds"]
+        b.update(theta=[0, 1])
+        b["theta"] = np.array(b["theta"]) + [+SMALL, -SMALL]
+        bounds.append(b)
+
+
+    def clipped_predictions(theta, mu_single, sigma_single, sigma_multiple, bounds):
+        theta = np.clip(theta, *bounds["theta"])
+        mu_single = np.clip(mu_single, *bounds["mu_single"])
+        sigma_single = np.clip(sigma_single, *bounds["sigma_single"])
+        sigma_multiple = np.clip(sigma_single, *bounds["sigma_multiple"])
+
+        return np.array([theta, mu_single, sigma_single, sigma_multiple])
+
+
+    def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple_scalar):
+
+        with warnings.catch_warnings(): 
+            # I'll log whatever number I want python you can't tell me what to do
+            warnings.simplefilter("ignore") 
+
+            mu_multiple = np.log(mu_single + mu_multiple_scalar * sigma_single) + sigma_multiple**2
+            
+            ln_s = np.log(theta) + utils.normal_lpdf(y, mu_single, sigma_single)
+            ln_m = np.log(1-theta) + utils.lognormal_lpdf(y, mu_multiple, sigma_multiple)
+
+            # FIX BAD SUPPORT.
+
+            # This is a BAD MAGIC HACK where we are just going to flip things.
+            """
+            limit = mu_single - 2 * sigma_single
+            bad_support = (y <= limit) * (ln_m > ln_s)
+            ln_s_bs = np.copy(ln_s[bad_support])
+            ln_m_bs = np.copy(ln_m[bad_support])
+            ln_s[bad_support] = ln_m_bs
+            ln_m[bad_support] = ln_s_bs
+            """
+            ln_s = np.atleast_1d(ln_s)
+            ln_m = np.atleast_1d(ln_m)
+
+            lp = np.array([ln_s, ln_m]).T
+
+            #assert np.all(np.isfinite(lp))
+
+            p_single = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))
+
+        return (p_single, ln_s, ln_m)
+
+
+    def calc_probs(ys, gp_predictions, bounds, N_draws, percentiles):
+
+        ys = np.atleast_2d(ys)
+        Q, M = ys.shape
+
+        shape = (Q, M + 1, N_draws)
+        obj_p_singles = np.empty(shape)
+        obj_ln_s = np.empty(shape)
+        obj_ln_m = np.empty(shape)
+
+        # gp_predictions has shape M, 4, 2
+        mu = gp_predictions[:, :, 0]
+        var = gp_predictions[:, :, 1]
+
+        for q, ym in enumerate(tqdm(ys)):
+
+            for m, y in enumerate(ym):
+
+                # Do draws for all models
+                _slice = (q, m, slice(0, None))
+                if not np.all(np.isfinite(np.hstack([y, mu[m], var[m]]))):
+                    obj_p_singles[_slice] = np.nan
+                    obj_ln_s[_slice] = np.nan
+                    obj_ln_s[_slice] = np.nan
+                    continue
+
+                draws = clipped_predictions(
+                    *np.random.multivariate_normal(mu[m], np.diag(var[m]), size=N_draws).T, 
+                    bounds[m])
+
+                obj_p_singles[_slice], obj_ln_s[_slice], obj_ln_m[_slice] \
+                    = calc_p_single(y, *draws, mu_multiple_scalar=3)
+
+        # Now calculate the joint probabilities
+        obj_ln_s[:, -1, :] = np.nansum(obj_ln_s[:, :-1, :], axis=1)
+        obj_ln_m[:, -1, :] = np.nansum(obj_ln_m[:, :-1, :], axis=1)
+
+        lp = np.array([obj_ln_s[:, -1, :], obj_ln_m[:, -1, :]])
+
+        obj_p_singles[:, -1, :] = np.exp(lp[0] - special.logsumexp(lp, axis=0))
+
+        # Then calculate percentiles ofthose probabilities.
+        obj_p_singles[~np.isfinite(obj_p_singles)] = -1
+        p = np.percentile(obj_p_singles, percentiles, axis=-1).transpose((1, 0, 2))
+        p[p == -1] = np.nan
+        return p
+
+
+    # Given RUWE, calculate for all.
+    ast_gp_predictions = gp_predictions[:, [0], :, :]
+
+    p_50 = np.empty((ruwe.size, 1))
+
+    for i, ruwe_ in enumerate(tqdm(ruwe.flatten())):
+
+        foo = calc_probs(ruwe_, ast_gp_predictions[i], bounds, 128, [50])
+        p_50[i] = foo[0, 0, 0]
+
+        
+    raise a
+    '''
 
     N_bins = 20
 
