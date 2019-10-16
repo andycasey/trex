@@ -312,9 +312,7 @@ def _get_1d_initialisation_point(y, scalar, bounds=None):
     for init in (init_dict, op_dict):
         if np.isfinite(nlp(utils._pack_params(**init), y, 1)):
             valid_inits.append(init)
-        else:
-            raise a
-
+            
     valid_inits.append("random")
 
     return valid_inits

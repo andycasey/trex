@@ -209,6 +209,11 @@ if __name__ == "__main__":
             raise NotImplementedError("unrecognised coreset method")
 
 
+        for i, label_name in enumerate(all_label_names[1:]):
+            v = X[npm_indices, i]
+            print(f"{label_name} min: {np.min(v)}  max: {np.max(v)}")
+
+
         
 
         logger.info(f"Building K-D tree with N = {X.shape[0]}, D = {X.shape[1]}...")
