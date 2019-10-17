@@ -518,6 +518,9 @@ if __name__ == "__main__":
                         break
             return P
 
+
+        
+
         foo = np.log10(np.array([data[ln] for ln in ("K1", "Per")]))
         foo = foo[:, foo[0] > -0.25]
         mu = np.mean(foo, axis=1)

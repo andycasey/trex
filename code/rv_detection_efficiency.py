@@ -28,6 +28,9 @@ import utils
 data = h5.File("../data/sources.hdf5", "r")
 sources = data["sources"]
 
+# Load in results.
+results = h5.File("../results/rc.7/results-5482.h5", "r")
+
 
 # Simulate a binary population.
 np.random.seed(42)
@@ -108,9 +111,9 @@ rv_nb_transits_bins = np.logspace(0, np.log2(50), 10, base=2).astype(int)
 rv_nb_transits_bins[0] = 0
 
 label_names_and_bins = OrderedDict([
-    ("bp_rp", 10),
-    ("phot_rp_mean_mag", 10),
-    ("absolute_rp_mag", 10),
+    ("bp_rp", 15),
+    ("absolute_rp_mag", 15),
+    ("phot_rp_mean_mag", 2),
     ("rv_nb_transits", rv_nb_transits_bins)
 ])
 
@@ -118,6 +121,9 @@ X = np.array([sources[ln][()] for ln in label_names_and_bins.keys()]).T
 finite = np.all(np.isfinite(X), axis=1)
 
 H, edges = np.histogramdd(X[finite], bins=tuple(label_names_and_bins.values()))
+centroids = [e[:-1] + 0.5 * np.diff(e) for e in edges]
+
+
 
 # For fun let's plot the rv_nb_transits histogram.
 fig, ax = plt.subplots()
@@ -133,6 +139,111 @@ y = K.to(u.km/u.s).value
 ax.scatter(x, y)
 ax.loglog()
 
+
 # Now let's calculate the mu_single and sigma_single at each bin point.
+def get_gp(results, model_name, parameter_name):
+
+    X = results[f"models/{model_name}/gp_model/{parameter_name}/X"][()]
+    Y = results[f"models/{model_name}/gp_model/{parameter_name}/Y"][()]
+
+    attrs = results[f"models/{model_name}/gp_model/{parameter_name}"].attrs
+
+    metric = np.var(X, axis=0)
+    kernel = george.kernels.ExpSquaredKernel(metric=metric, ndim=metric.size)
+    gp = george.GP(kernel,
+                   mean=np.mean(Y), fit_mean=True,
+                   white_noise=np.log(np.std(Y)), fit_white_noise=True)
+    for p in gp.parameter_names:
+        gp.set_parameter(p, attrs[p])
+
+    gp.compute(X)
+
+    return (gp, Y)
 
 
+gp_mu_single, y = get_gp(results, "rv", "mu_single")
+gp_sigma_single, _ = get_gp(results, "rv", "sigma_single")
+
+grid = np.meshgrid(*centroids[:-1])
+t = np.array(grid).reshape((3, -1)).T
+
+gp_kwds = dict(y=y, t=t, return_var=True, return_cov=False)
+
+p_mu_single, var_mu_single = gp_mu_single.predict(**gp_kwds)
+p_sigma_single, var_sigma_single = gp_sigma_single.predict(**gp_kwds)
+
+observing_span_in_days = observing_span.to(u.day).value
+
+def simulate_rv_jitter(K, P, rv_nb_transits, p_mu_single, var_mu_single, p_sigma_single, var_sigma_single):
+
+    T = np.random.uniform(0, observing_span_in_days, rv_nb_transits)
+    phi = np.random.uniform(0, 2 * np.pi)
+
+    v = K * np.sin(2 * np.pi * T / P + phi)
+    mu = np.random.normal(p_mu_single, np.sqrt(var_mu_single), rv_nb_transits)
+    sigma = np.random.normal(p_sigma_single, np.sqrt(var_sigma_single), rv_nb_transits)
+
+    # TODO THIS IS WRONG
+    mu = np.abs(mu)
+    sigma = np.abs(sigma)
+
+    noise = np.random.normal(mu, sigma)
+
+    return np.std(v + noise)
+
+def jitter_to_radial_velocity_error(jitter, rv_nb_transits):
+    return np.sqrt((2 * rv_nb_transits)/np.pi * jitter**2 - 0.11**2)
+
+
+
+G = t.shape[0]
+# v_stds has shape (number_of_bins_in mag and color, number of rv_bins, number of fake binaries)
+v_stds = np.empty((G, rv_nb_transits_bins.size, N))
+
+KPs = np.array([
+    K.to(u.km/u.s).value,
+    P.to(u.day).value
+]).T
+
+for i in tqdm(range(G)):
+    kwds = dict(p_mu_single=p_mu_single[i], var_mu_single=var_mu_single[i],
+                p_sigma_single=p_sigma_single[i], var_sigma_single=var_sigma_single[i])
+
+    for j in range(v_stds.shape[1]):
+        if rv_nb_transits_bins[j] < 2:
+            v_stds[i, j, :] = np.nan
+            continue
+
+        kwds.update(rv_nb_transits=rv_nb_transits_bins[j])
+
+        for k, (K_, P_) in enumerate(KPs):
+            v_stds[i, j, k] = simulate_rv_jitter(K=K_, P=P_, **kwds)
+    
+# OK, now when would we actually have detected it.
+#rv_error = jitter_to_radial_velocity_error(v_stds, rv_nb_transits_bins.reshape((1, -1, 1)))
+
+def p_single(rv_jitter, rv_nb_transits):
+
+    rv_error = jitter_to_radial_velocity_error(rv_jitter, rv_nb_transits.reshape((1, -1, 1)))
+
+    p_single = np.empty_like(rv_jitter)
+    p_single[rv_error >= 20] = np.nan
+    p_single[~np.isfinite(rv_error)] = np.nan
+
+    # Let's do something dumb and just say if it's > mu + 3 * sigma 
+    # and ignore the variance in estimating both of those quantities
+    detectable = (p_mu_single + 3 * p_sigma_single).reshape((-1, 1, 1))
+
+    return rv_jitter >= detectable
+
+
+p = np.sum(p_single(v_stds, rv_nb_transits_bins), axis=(1, 2))
+p = p / (v_stds.shape[1] * v_stds.shape[2])
+
+fig, ax = plt.subplots()
+ax.imshow(np.mean(p.reshape((15, 15, -1)), axis=2))
+
+
+
+
+ 
