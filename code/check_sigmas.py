@@ -1,6 +1,8 @@
 
 """
-What's better: \sigma_{MTA} or \sigma_{RV}?
+Question: What's better: \sigma_{MTA} or \sigma_{RV}?
+
+Answer: \sigma_{MTA}, as suspected!
 """
 
 

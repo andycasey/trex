@@ -3,12 +3,14 @@ import os
 import itertools # dat feel
 import operator
 import functools
+import multiprocessing as mp
 import numpy as np
 import h5py as h5
 import pickle
 import yaml
 import warnings
 import george
+
 from astropy.constants import G
 from astropy.table import Table
 from astropy import units as u
@@ -23,6 +25,10 @@ from matplotlib.colors import LogNorm
 
 import twobody
 import utils
+import binaries
+
+# You can't tell me what to do python
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 # Load in sources.
 data = h5.File("../data/sources.hdf5", "r")
@@ -38,62 +44,23 @@ np.random.seed(42)
 # Assume that we observe each system at a uniformly random time.
 # From https://www.cosmos.esa.int/web/gaia/dr2
 observing_start, observing_end = (Time('2014-07-25T10:30'), Time('2016-05-23T11:35')) 
-observing_span = (observing_end - observing_start).to(u.day) # ~ 668 days
+observing_span_in_days = (observing_end - observing_start).to(u.day).value # ~ 668 days
 
-#T = observing_start + np.random.uniform(0, 1, N_rv_obs) * (observing_end - observing_start)
 
 # Now let us make draws from what we really think are representative.
-def draw_periods(N, log_P_mu=4.8, log_P_sigma=2.3, log_P_min=-2, log_P_max=12):
-
-    # orbital period Duquennoy and Mayor 1991 distribution
-    P = np.empty(N)
-    P_min, P_max = (10**log_P_min, 10**log_P_max)
-
-    for i in range(N):
-        while True:
-            x = np.random.lognormal(log_P_mu, log_P_sigma)
-            if P_max >= x >= P_min:
-                P[i] = x
-                break
-    return P
-
-
-def mass_ratios(M_1, q_min=0.1, q_max=1):
-    N = len(M_1)
-    q = np.empty(N)
-    for i, M in enumerate(M_1):
-        q[i] = np.random.uniform(q_min / M.value, q_max)
-    return q
-
-def salpeter_imf(N, alpha=2.35, M_min=0.1, M_max=100):
-    # salpeter imf
-    log_M_limits = np.log([M_min, M_max])
-
-    max_ll = M_min**(1.0 - alpha)
-
-    M = []
-    while len(M) < N:
-        Mi = np.exp(np.random.uniform(*log_M_limits))
-
-        ln = Mi**(1 - alpha)
-        if np.random.uniform(0, max_ll) < ln:
-            M.append(Mi)
-
-    return np.array(M)
-
-
-N_rv_simulations = 1000
-
 log_P_min, log_P_max = (-2, 12) # log_10(P / day)
+log_P_min, log_P_max = (-2, 4)
+print("Warning: using un-representative log_P boundaries")
+
 q_min, q_max = (0.1, 1)
 M_min, M_max = (0.1, 100) # sol masses
 
 # Draw periods, masses, and q values.        
-N = 1000
+N = 10
 
-P = draw_periods(N, log_P_min=log_P_min, log_P_max=log_P_max) * u.day
-M_1 = salpeter_imf(N, M_min=M_min, M_max=M_max) * u.solMass
-q = mass_ratios(M_1, q_min=q_min, q_max=q_max)
+P = binaries.draw_periods(N, log_P_min=log_P_min, log_P_max=log_P_max) * u.day
+M_1 = binaries.salpeter_imf(N, M_min=M_min, M_max=M_max) * u.solMass
+q = binaries.mass_ratios(M_1, q_min=q_min, q_max=q_max)
 M_2 = q * M_1
 e = np.zeros(N)
 i = np.arccos(np.random.uniform(0, 1, size=N))
@@ -105,16 +72,19 @@ a = np.cbrt(G * (M_1 + M_2) * (P/(2 * np.pi))**2)
 # Compute the radial velocity semi-amplitude.
 K = 2 * np.pi * a * np.sin(i) / (P * np.sqrt(1 - e**2))
 
+
+
+
 # Calculate the detection efficiency on a grid of:
 # colour, apparent magnitude, absolute magnitude, and number of RV observations.
-rv_nb_transits_bins = np.logspace(0, np.log2(50), 10, base=2).astype(int)
-rv_nb_transits_bins[0] = 0
+rv_nb_transits_centroids = np.logspace(0, np.log2(50), 10, base=2).astype(int)
+rv_nb_transits_centroids[0] = 0
 
+Q = 30
 label_names_and_bins = OrderedDict([
-    ("bp_rp", 15),
-    ("absolute_rp_mag", 15),
-    ("phot_rp_mean_mag", 2),
-    ("rv_nb_transits", rv_nb_transits_bins)
+    ("bp_rp", np.linspace(-0.5, 5, Q)),
+    ("absolute_rp_mag", np.linspace(-10, 10, Q)),
+    ("phot_rp_mean_mag", np.linspace(4, 14, Q)),
 ])
 
 X = np.array([sources[ln][()] for ln in label_names_and_bins.keys()]).T
@@ -164,22 +134,22 @@ def get_gp(results, model_name, parameter_name):
 gp_mu_single, y = get_gp(results, "rv", "mu_single")
 gp_sigma_single, _ = get_gp(results, "rv", "sigma_single")
 
-grid = np.meshgrid(*centroids[:-1])
-t = np.array(grid).reshape((3, -1)).T
+grid = np.array(np.meshgrid(*centroids)).reshape((3, -1)).T
 
-gp_kwds = dict(y=y, t=t, return_var=True, return_cov=False)
+gp_kwds = dict(y=y, t=grid, return_var=True, return_cov=False)
 
 p_mu_single, var_mu_single = gp_mu_single.predict(**gp_kwds)
 p_sigma_single, var_sigma_single = gp_sigma_single.predict(**gp_kwds)
 
-observing_span_in_days = observing_span.to(u.day).value
 
 def simulate_rv_jitter(K, P, rv_nb_transits, p_mu_single, var_mu_single, p_sigma_single, var_sigma_single):
+
 
     T = np.random.uniform(0, observing_span_in_days, rv_nb_transits)
     phi = np.random.uniform(0, 2 * np.pi)
 
     v = K * np.sin(2 * np.pi * T / P + phi)
+
     mu = np.random.normal(p_mu_single, np.sqrt(var_mu_single), rv_nb_transits)
     sigma = np.random.normal(p_sigma_single, np.sqrt(var_sigma_single), rv_nb_transits)
 
@@ -195,33 +165,121 @@ def jitter_to_radial_velocity_error(jitter, rv_nb_transits):
     return np.sqrt((2 * rv_nb_transits)/np.pi * jitter**2 - 0.11**2)
 
 
-
-G = t.shape[0]
 # v_stds has shape (number_of_bins_in mag and color, number of rv_bins, number of fake binaries)
-v_stds = np.empty((G, rv_nb_transits_bins.size, N))
+N_grid = grid.shape[0]
+v_stds = np.empty((N_grid, rv_nb_transits_centroids.size, N))
+
 
 KPs = np.array([
     K.to(u.km/u.s).value,
     P.to(u.day).value
 ]).T
 
-for i in tqdm(range(G)):
-    kwds = dict(p_mu_single=p_mu_single[i], var_mu_single=var_mu_single[i],
-                p_sigma_single=p_sigma_single[i], var_sigma_single=var_sigma_single[i])
+'''
 
-    for j in range(v_stds.shape[1]):
-        if rv_nb_transits_bins[j] < 2:
-            v_stds[i, j, :] = np.nan
-            continue
+def swarm(*indices, in_queue=None, out_queue=None):
 
-        kwds.update(rv_nb_transits=rv_nb_transits_bins[j])
+    swarm = True
+    while swarm:
+        try:
+            i, j, k, *args = in_queue.get_nowait()
 
-        for k, (K_, P_) in enumerate(KPs):
-            v_stds[i, j, k] = simulate_rv_jitter(K=K_, P=P_, **kwds)
-    
+        except mp.queues.Empty:
+            break
+
+        except StopIteration:
+            break
+
+        except:
+            logging.exception("Unexpected exception:")
+            break
+
+        else:
+            try:
+                v_std = simulate_rv_jitter(*args)
+
+            except:
+                logging.exception("Unexpected exception:")
+
+            else:
+                out_queue.put((i, j, k, v_std))
+
+    return None
+
+
+total = grid.shape[0]
+processes = 30
+with mp.Pool(processes=processes) as pool:
+
+    manager = mp.Manager()
+    in_queue, out_queue = manager.Queue(), manager.Queue()
+
+    swarm_kwds = dict(in_queue=in_queue, out_queue=out_queue)
+
+    for i, (bp_rp, absolute_rp_mag, phot_rp_mean_mag) in tqdm(enumerate(grid), total=total):
+
+        args = [
+            p_mu_single[i],
+            var_mu_single[i],
+            p_sigma_single[i],
+            var_sigma_single[i]
+        ]
+
+        for j, rv_nb_transits in enumerate(rv_nb_transits_centroids):
+            for k, KP in enumerate(KPs):
+                if rv_nb_transits < 2:
+                    v_stds[i, j, k] = np.nan
+                    continue
+
+                in_queue.put((i, j, k, (*KP, rv_nb_transits, *args)))
+
+        
+    procs = []
+    for _ in range(P):
+        procs.append(pool.apply_async(swarm, [], kwds=swarm_kwds))
+
+    with tqdm(total=total) as pbar:
+
+        while True:
+            try:
+                r = out_queue.get(timeout=1)
+            except mp.queues.Empty:
+                break
+
+            else:
+                i, j, k, v_std = r
+                v_stds[i, j, k] = v_std
+
+                p_bar.update(1)
+                #processes.append(pool.apply_async())
+                #v_stds[i, j, k] = simulate_rv_jitter(*KP, rv_nb_transits, **kwds)
+'''
+
+gp_predictions = np.vstack([p_mu_single, var_mu_single, p_sigma_single, var_sigma_single]).T
+
+v_stds = np.ones((N_grid, rv_nb_transits_centroids.size, N)) * np.nan
+
+
+print("Opening the pool for business!")
+
+
+def iters():
+    for i, j, k in itertools.product(*(map(range, v_stds.shape))):
+        args = (*KPs[k], rv_nb_transits_centroids[j], *gp_predictions[i])
+        yield (i, j, k, args)
+
+
+def w(args):
+    i, j, k = args[:3]
+    return (i, j, k, simulate_rv_jitter(*args[3]))
+
+
+processes, chunk_size = 100, 100
+with mp.Pool(processes) as pool:
+    for i, j, k, v_std in tqdm(pool.imap_unordered(w, iters(), chunk_size), total=v_stds.size):
+        v_stds[i, j, k] = v_std
+
 # OK, now when would we actually have detected it.
-#rv_error = jitter_to_radial_velocity_error(v_stds, rv_nb_transits_bins.reshape((1, -1, 1)))
-
 def p_single(rv_jitter, rv_nb_transits):
 
     rv_error = jitter_to_radial_velocity_error(rv_jitter, rv_nb_transits.reshape((1, -1, 1)))
@@ -237,13 +295,38 @@ def p_single(rv_jitter, rv_nb_transits):
     return rv_jitter >= detectable
 
 
-p = np.sum(p_single(v_stds, rv_nb_transits_bins), axis=(1, 2))
-p = p / (v_stds.shape[1] * v_stds.shape[2])
 
-fig, ax = plt.subplots()
-ax.imshow(np.mean(p.reshape((15, 15, -1)), axis=2))
+p = np.sum(p_single(v_stds, rv_nb_transits_centroids), axis=(1, 2)) \
+  / (rv_nb_transits_centroids.size * N)
+
+# Now plot as a H-R diagram.
+def _plot_mean_p_single(bp_rp, absolute_rp_mag, phot_rp_mean_mag, p, 
+                        vmin=None, vmax=None, **kwargs):
+
+    x = bp_rp
+    y = absolute_rp_mag
+
+    imshow_kwds = dict(vmin=vmin, vmax=vmax,
+                       aspect=np.ptp(x)/np.ptp(y),
+                       extent=(np.min(x), np.max(x), np.max(y), np.min(y)),
+                       cmap="inferno",
+                       interpolation="none")
+    imshow_kwds.update(kwargs)
+
+    H = np.mean(p.reshape((x.size, y.size, -1)), axis=-1)
+
+    fig, ax = plt.subplots()
+    image = ax.imshow(H, **imshow_kwds)
+
+    colorbar = plt.colorbar(image, ax=ax)
+
+    return fig
 
 
+bp_rp, absolute_rp_mag, phot_rp_mean_mag = centroids
+
+
+fig = _plot_mean_p_single(bp_rp, absolute_rp_mag,phot_rp_mean_mag, p)
 
 
  
