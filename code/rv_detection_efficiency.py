@@ -9,7 +9,6 @@ import h5py as h5
 import pickle
 import yaml
 import warnings
-import george
 
 from astropy.constants import G
 from astropy.table import Table
@@ -175,85 +174,6 @@ KPs = np.array([
     P.to(u.day).value
 ]).T
 
-'''
-
-def swarm(*indices, in_queue=None, out_queue=None):
-
-    swarm = True
-    while swarm:
-        try:
-            i, j, k, *args = in_queue.get_nowait()
-
-        except mp.queues.Empty:
-            break
-
-        except StopIteration:
-            break
-
-        except:
-            logging.exception("Unexpected exception:")
-            break
-
-        else:
-            try:
-                v_std = simulate_rv_jitter(*args)
-
-            except:
-                logging.exception("Unexpected exception:")
-
-            else:
-                out_queue.put((i, j, k, v_std))
-
-    return None
-
-
-total = grid.shape[0]
-processes = 30
-with mp.Pool(processes=processes) as pool:
-
-    manager = mp.Manager()
-    in_queue, out_queue = manager.Queue(), manager.Queue()
-
-    swarm_kwds = dict(in_queue=in_queue, out_queue=out_queue)
-
-    for i, (bp_rp, absolute_rp_mag, phot_rp_mean_mag) in tqdm(enumerate(grid), total=total):
-
-        args = [
-            p_mu_single[i],
-            var_mu_single[i],
-            p_sigma_single[i],
-            var_sigma_single[i]
-        ]
-
-        for j, rv_nb_transits in enumerate(rv_nb_transits_centroids):
-            for k, KP in enumerate(KPs):
-                if rv_nb_transits < 2:
-                    v_stds[i, j, k] = np.nan
-                    continue
-
-                in_queue.put((i, j, k, (*KP, rv_nb_transits, *args)))
-
-        
-    procs = []
-    for _ in range(P):
-        procs.append(pool.apply_async(swarm, [], kwds=swarm_kwds))
-
-    with tqdm(total=total) as pbar:
-
-        while True:
-            try:
-                r = out_queue.get(timeout=1)
-            except mp.queues.Empty:
-                break
-
-            else:
-                i, j, k, v_std = r
-                v_stds[i, j, k] = v_std
-
-                p_bar.update(1)
-                #processes.append(pool.apply_async())
-                #v_stds[i, j, k] = simulate_rv_jitter(*KP, rv_nb_transits, **kwds)
-'''
 
 gp_predictions = np.vstack([p_mu_single, var_mu_single, p_sigma_single, var_sigma_single]).T
 
@@ -327,6 +247,8 @@ bp_rp, absolute_rp_mag, phot_rp_mean_mag = centroids
 
 
 fig = _plot_mean_p_single(bp_rp, absolute_rp_mag,phot_rp_mean_mag, p)
+
+
 
 
  
