@@ -47,7 +47,21 @@ results:
     source_id
     source_indices
 
-    MODEL_PREDICTORS # (e.g., j_ast or j_ast)
+    # Data used
+    j_rv
+    j_ast
+
+    # GP predictions
+    rv_theta
+    rv_mu_single
+    rv_sigma_single
+    rv_sigma_multiple
+
+    # GP predictions
+    ast_theta
+    ast_mu_single
+    ast_sigma_single
+    ast_sigma_multiple
 
     # Log likelihoods
     ll_rv_single
