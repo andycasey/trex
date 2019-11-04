@@ -165,11 +165,8 @@ def _unpack_params(params, L=None):
     return (theta, mu_single, sigma_single, mu_multiple, sigma_multiple)
 
 
-def _pack_params(theta, mu_single, sigma_single, mu_multiple, sigma_multiple, mu_multiple_uv=None, **kwargs):
-    if mu_multiple_uv is None:
-        return np.hstack([theta, mu_single, sigma_single, mu_multiple, sigma_multiple])
-    else:
-        return np.hstack([theta, mu_single, sigma_single, mu_multiple, sigma_multiple, mu_multiple_uv])
+def _pack_params(theta, mu_single, sigma_single, mu_multiple, sigma_multiple, **kwargs):
+    return np.hstack([theta, mu_single, sigma_single, mu_multiple, sigma_multiple])
 
 
 def _check_params_dict(d, bounds_dict=None, fail_on_bounds=True, tolerance=0.01):

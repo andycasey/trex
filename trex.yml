@@ -1,5 +1,5 @@
 # inputs and outputs
-data_path: data/sources.hdf5
+data_path: data/5482.hdf5
 model_path: src/trex/nlnmm-fixed.stan
 results_path: results/{unique_hash}/results.h5
 
@@ -11,7 +11,7 @@ multiprocessing: true
 processes: 50
 
 # scale of data we can afford
-number_of_sources_for_gaussian_process: 1000
+number_of_sources_for_gaussian_process: 2048
 
 # debugging
 suppress_stan_output: true
@@ -19,7 +19,7 @@ sample_mixture_model: false
 plot_mixture_model_figures: false
 
 ignore_keywords_when_creating_hash:
-  - ignore_keywords_when_creating_hash
+  - ignore_keywords_when_creating_hash # meta
   - plot_mixture_model_figures
   - models/rv/gp_initial_guess
   - models/ast/gp_initial_guess
@@ -34,39 +34,40 @@ models:
     # bounds of the data to consider for this model
     data_bounds:
       bp_rp: [-0.5, 5]
-      absolute_g_mag: [-15, 15]
+      absolute_g_mag: [-10, 12]
       phot_g_mean_mag: [3, 15]
+      j_ast: [0, 30]
 
     # kdtree settings
     kdtree_label_names: [bp_rp, absolute_g_mag, phot_g_mean_mag]
-    kdtree_maximum_points: 1024
-    kdtree_maximum_radius: [0.5, 1, 1]
+    kdtree_maximum_points: 128
+    kdtree_maximum_radius: [1, 3, 3]
     kdtree_minimum_points: 128
     kdtree_minimum_radius: [0.1, 0.1, 0.1]
-    kdtree_relative_scales: [0.05, 0.5, 0.5]
-    #predictor_label_name: j_ast
-    predictor_label_name: ruwe
-
-    coreset_method: grid
+    kdtree_relative_scales: [0.1, 1, 1]
+    predictor_label_name: j_ast
+    
+    # how to define the subset of sources where we will calibrate jitter with
+    coreset_method: random
+    coreset_num_bins: 50 # only used for uniform-grid method
 
     # mixture model parameter bounds
     bounds:
       theta: [0.5, 1]
-      mu_single: [0.25, 5]
-      sigma_single: [0.025, 1]
+      mu_single: [0.25, 25]
+      sigma_single: [0.025, 5]
       sigma_multiple: [0, 1.5]
 
     # mixture model parameter settings
     mu_multiple_scalar: 3
-    tol_sum_sigma: 100000
-    tol_proximity: 0.0000001
+    tol_sum_sigma: 10
+    tol_proximity: 0.001
 
     # optionally specify an initial guess for the gaussian process hyperparameters
     gp_initial_guess:
       theta: [0.75642452, -6.15243924, -1.19806002, 1.83805641, -2.08442704]
       mu_single: [2.11952289, -8.11510261, -1.76705322, 0.66798723, -1.41052901]
-      sigma_single: [0.25855645, -8.2251049, -1.45272654, 1.18873635, -2.33497652]
-      mu_multiple: [5.11043008, 5.15561675, 9.13884006, 2.49112459, 13.16006721]
+      sigma_single: [0.25855645, -8.2251049, -1.45272654, 1.18873635, -2.33497652]     
       sigma_multiple: [0.47961741, -4.33031589, -2.19776114, 0.94046639, 1.08231821]
 
   # radial velocity
@@ -74,19 +75,23 @@ models:
     # bounds of the data to consider for this model
     data_bounds:
       bp_rp: [-0.5, 5]
-      absolute_g_mag: [-15, 15]
+      absolute_g_mag: [-10, 12]
       phot_g_mean_mag: [3, 15]
+      j_rv: [0, 20]
+
 
     # kdtree settings
     kdtree_label_names: [bp_rp, absolute_rp_mag, phot_rp_mean_mag]
-    kdtree_maximum_points: 1024
-    kdtree_maximum_radius: [0.5, 1, 1]
+    kdtree_maximum_points: 128
+    kdtree_maximum_radius: [1, 3, 3]
     kdtree_minimum_points: 128
     kdtree_minimum_radius: [0.1, 0.1, 0.1]
-    kdtree_relative_scales: [0.05, 0.5, 0.5]
+    kdtree_relative_scales: [0.1, 1, 1]
     predictor_label_name: j_rv
 
-    coreset_method: grid
+    # how to define the subset of sources where we will calibrate jitter with
+    coreset_method: random
+    coreset_num_bins: 100 # only used for uniform-grid method
 
     # mixture model parameter bounds
     bounds:
@@ -96,15 +101,14 @@ models:
       sigma_multiple: [0, 1.5]
 
     # mixture model parameter settings
-    max_y: 20
+
     mu_multiple_scalar: 3
-    tol_sum_sigma: 100000
-    tol_proximity: 0.0000001
+    tol_sum_sigma: 10
+    tol_proximity: 0.001
 
     # optionally specify an initial guess for the gaussian process hyperparameters
     gp_initial_guess:
       theta: [0.83360789, -5.06488286, -0.52500445, 2.44143271, 2.1833365]
       mu_single: [0.70799748, -7.11288233, -3.07209803, 1.51100918, 2.56365552]
       sigma_single: [0.6010562, -7.78274635, -2.40511388, 1.85969737, 3.69525254]
-      mu_multiple: [0.1869771, -3.65507317, -2.80520958, 0.95649974, 1.1112062]
       sigma_multiple: [0.47922389, -6.8655726, -2.76490369, 0.81800791, 0.83875105]

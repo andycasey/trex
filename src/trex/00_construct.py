@@ -100,6 +100,10 @@ if __name__ == "__main__":
         results.attrs.create("config", np.string_(yaml.dump(config)))
         results.attrs.create("config_path", np.string_(config_path))
 
+        # Create models group.
+        results.create_group("models", track_order=True)
+
+
     # Load model and check optimization keywords
 
     """
@@ -165,6 +169,22 @@ if __name__ == "__main__":
 
                 logger.info(f"Restricting to sources with {parameter_name}: [{lower:.1f}, {upper:.1f}]")
 
+        if model_name == "ast":
+            logger.info("Applying astrometric-specific cuts to data")
+
+            ylim = 10
+            theta = np.polyfit([2, 6], [35 + 5, ylim], 1)
+
+            lim = np.polyval(theta, sources["phot_g_mean_mag"][()])
+
+            exclude = ((sources["phot_g_mean_mag"][()] >= 6) * (sources["j_ast"][()] >= ylim)) \
+                    + ((sources["phot_g_mean_mag"][()] <  6) * (sources["j_ast"][()] > lim))
+
+            data_mask *= ~exclude
+
+
+
+
         data_indices = np.where(data_mask)[0]
 
 
@@ -177,12 +197,41 @@ if __name__ == "__main__":
 
 
         if coreset_method == "random":
-            npm_indices = np.random.choice(data_indices.size, M, replace=False)
 
-        elif coreset_method == "grid":
+            # deal with bright things
+            bright = (X.T[2] <= 8)
+            bright_fraction = 0.05
 
+            num_bright = int(np.ceil(M * bright_fraction))
+
+            pp = 1.0/X.T[2][bright]
+            pp = pp/np.sum(pp)
+
+            logger.warning("Incorporating preference for bright stars to ensure good coverage")
+
+            npm_indices = np.hstack([
+                np.random.choice(np.arange(data_indices.size)[bright], num_bright, replace=False, p=pp),
+                np.random.choice(data_indices.size, M - num_bright, replace=False)
+            ])
+
+            kwds = dict(s=5, c=Y[npm_indices])
+
+            fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+            scat = axes[0].scatter(X[npm_indices, 0], X[npm_indices, 1], **kwds)
+            axes[1].scatter(X[npm_indices, 0], X[npm_indices, 2], **kwds)
+
+            cbar = plt.colorbar(scat)
+            cbar.set_label(lns[-1])
+
+            for ax in axes:
+                ax.set_ylim(ax.get_ylim()[::-1])
+                ax.set_xlabel("bp - rp")
+
+            fig.savefig(os.path.join(results_dir, f"hrd-npm-indices-{model_name}.png"), dpi=300)
+
+
+        elif coreset_method == "uniform-density-grid":
             num_bins = int(np.ceil(M**(1.0/X.shape[1])))
-
             M = num_bins**X.shape[1]
 
             bins = np.percentile(X, np.linspace(0, 100, 1 + num_bins), axis=0).T
@@ -195,15 +244,43 @@ if __name__ == "__main__":
             for i, bn in enumerate(tqdm.tqdm(set(binnumber))):
                 npm_indices[i] = np.random.choice(np.where(binnumber == bn)[0], size=1)
 
+        elif coreset_method == "uniform-grid":
+            coreset_num_bins = model_config.get("coreset_num_bins", 100)
+            logger.info(f"Using coreset_num_bins = {coreset_num_bins}")
+        
+            H, bin_edges, bin_numbers = stats.binned_statistic_dd(X, 1,
+                                                                  statistic="count", 
+                                                                  bins=coreset_num_bins,
+                                                                  expand_binnumbers=True)
+            bin_numbers -= 1 # edge effects
+
+            H_inv = (1.0/H).flatten()
+            keep = np.where(np.isfinite(H_inv))[0]
+
+            p = H_inv[keep] / np.sum(H_inv[keep])
+
+            indices = np.random.choice(keep, M, replace=False, p=p.flatten())
+            chosen_bin_numbers = np.array(np.unravel_index(indices, H.shape)).T
+
+            npm_indices = np.zeros(M, dtype=int)
+            for i, bin_number in enumerate(tqdm.tqdm(chosen_bin_numbers)):
+                in_bin = np.all(bin_numbers.T == np.atleast_2d(bin_number), axis=1)
+                npm_indices[i] = np.random.choice(np.where(in_bin)[0], 1)
+
+
+            fig1 = mpl.plot_binned_statistic(X[npm_indices, 0], X[npm_indices, 1], X[npm_indices, 1],
+                                           function="count")
+            fig2 = mpl.plot_binned_statistic(X[npm_indices, 0], X[npm_indices, 1], X[npm_indices, 1],
+                                           function="count")
+
         else:
             raise NotImplementedError("unrecognised coreset method")
+
 
 
         for i, label_name in enumerate(all_label_names[1:]):
             v = X[npm_indices, i]
             print(f"{label_name} min: {np.min(v)}  max: {np.max(v)}")
-
-
         
         logger.info(f"Building K-D tree with N = {X.shape[0]}, D = {X.shape[1]}...")
         kdt, scales, offsets = npm.build_kdtree(X,
@@ -216,12 +293,13 @@ if __name__ == "__main__":
                         maximum_points=model_config["kdtree_maximum_points"])
 
         # Optimize the non-parametric model for those sources.
-        npm_results = np.zeros((M, 5))
+        npm_results = np.nan * np.ones((M, 5))
         done = np.zeros(M, dtype=bool)
 
 
         mu_multiple_scalar = config.get("mu_multiple_scalar", 3)
 
+        '''
         def normal_lpdf(y, mu, sigma):
             ivar = sigma**(-2)
             return 0.5 * (np.log(ivar) - np.log(2 * np.pi) - (y - mu)**2 * ivar)
@@ -249,8 +327,7 @@ if __name__ == "__main__":
             axes[1].plot(x, log_pm)
 
             return fig
-
-
+        '''
 
         def optimize_mixture_model(index, inits=None, debug=False):
 
@@ -260,24 +337,21 @@ if __name__ == "__main__":
             y = Y[nearby_idx]
             ball = X[nearby_idx]
 
-            # Restrict/
-            max_y = config.get("max_y", None)
-            if max_y is not None:
-                keep = (y < max_y)
-                y, ball = y[keep], ball[keep]
+            if y.size < kdt_kwds.get("minimum_points", np.inf):
+                logger.warning(f"Danger: minimum number of points not found ({y.size})")
 
-
-            #if inits is None:
-            #    inits = npm._get_1d_initialisation_point(
-            #        y, scalar=mu_multiple_scalar, bounds=bounds)
+            if inits is None:
+                inits = npm.get_1d_initialisation_point(y, scalar=mu_multiple_scalar, bounds=bounds)
 
             # Update meta dictionary with things about the data.
-            meta = dict(N=nearby_idx.size,
-                        y_percentiles=np.percentile(y, [16, 50, 84]),
-                        ball_ptps=np.ptp(ball, axis=0),
-                        ball_medians=np.median(ball, axis=0),
-                        init_points=inits,
-                        kdt_indices=nearby_idx)
+            meta = dict()
+            if debug:
+                meta.update(N=nearby_idx.size,
+                            y_percentiles=np.percentile(y, [16, 50, 84]),
+                            ball_ptps=np.ptp(ball, axis=0),
+                            ball_medians=np.median(ball, axis=0),
+                            init_points=inits,
+                            kdt_indices=nearby_idx)
 
             data_dict = dict(y=y, N=y.size, mu_multiple_scalar=mu_multiple_scalar)
             data_dict.update(stan_bounds)
@@ -301,19 +375,15 @@ if __name__ == "__main__":
                         if p_opt is not None:
                             p_opts.append(p_opt["par"])
                             ln_probs.append(p_opt["value"])
-
-                            w, mu_s, sigma_s, sigma_m = p_opt["par"]["theta"], p_opt["par"]["mu_single"], p_opt["par"]["sigma_single"], p_opt["par"]["sigma_multiple"],
-
-                            fig = plot_pdf(y, w, mu_s, sigma_s, sigma_m)
-
-                            raise a
-
                 try:
                     p_opt
 
                 except UnboundLocalError:
-                    logger.warning("Stan failed. STDOUT & STDERR:")
-                    logger.warning("\n".join(sm.outputs))
+                    stdout, stderr = sm.outputs
+                    logger.warning("Stan failed. STDOUT:")
+                    logger.warning(stdout)
+                    logger.warning("STDERR:")
+                    logger.warning(stderr)
 
                 else:
                     if p_opt is None:
@@ -337,16 +407,13 @@ if __name__ == "__main__":
 
                 return (index, p_opt, meta)
 
+        """
 
         index = 5451123
         d, nearby_idx, meta = npm.query_around_point(kdt, X[index], **kdt_kwds)
 
         y = Y[nearby_idx]
         ball = X[nearby_idx]
-
-
-        keep = (y < 20)
-        y, ball = y[keep], ball[keep]
 
         inits = [dict(theta=0.9, mu_single=np.median(y), sigma_single=0.1, sigma_multiple=0.25)]
         foo = optimize_mixture_model(index, inits=inits)
@@ -355,4 +422,258 @@ if __name__ == "__main__":
 
 
         raise a
+        """
 
+
+        def sp_swarm(*sp_indices, **kwargs):
+
+            logger.info("Running single processor swarm")
+
+            with tqdm.tqdm(sp_indices, total=len(sp_indices)) as pbar:
+
+                for index in sp_indices:
+
+                    npm_index = np.where(npm_indices == index)[0]
+
+                    print(f"{index}, {npm_index}")
+                    if done[npm_index]: 
+                        print("Skipping because done")
+                        continue
+
+                    _, result, meta = optimize_mixture_model(index, **kwargs)
+
+                    print(f"result: {result}")
+                    pbar.update()
+
+                    done[npm_index] = True
+
+                    if result is not None:
+                        npm_results[npm_index] = utils._pack_params(**result)
+
+            return None
+
+
+
+        def mp_swarm(*mp_indices, in_queue=None, out_queue=None, seed=None, **kwargs):
+
+            np.random.seed(seed)
+
+            swarm = True
+
+            while swarm:
+
+                try:
+                    j, index = in_queue.get_nowait()
+
+                except mp.queues.Empty:
+                    logger.info("Queue is empty")
+                    break
+
+                except StopIteration:
+                    logger.warning("Swarm is bored")
+                    break
+
+                except:
+                    logger.exception("Unexpected exception:")
+                    break
+
+                else:
+                    if index is None and init is False:
+                        swarm = False
+                        break
+
+                    try:
+                        _, result, meta = optimize_mixture_model(index, **kwargs)
+
+                    except:
+                        logger.exception(f"Exception when optimizing on {index}")
+                        out_queue.put((j, index, None, dict()))
+
+                    else:
+                        out_queue.put((j, index, result, meta))
+
+            return None
+
+
+
+        optimize_mixture_model_kwds = dict(inits=None, debug=False)
+
+
+        if not config.get("multiprocessing", False):
+            sp_swarm(*npm_indices, **optimize_mixture_model_kwds)
+
+
+        else:
+            P = config.get("processes", mp.cpu_count())
+
+            with mp.Pool(processes=P) as pool:
+
+                manager = mp.Manager()
+
+                in_queue = manager.Queue()
+                out_queue = manager.Queue()
+
+                swarm_kwds = dict(in_queue=in_queue,
+                                  out_queue=out_queue)
+                swarm_kwds.update(optimize_mixture_model_kwds)
+
+
+                logger.info("Dumping everything into the queue!")
+                for j, index in enumerate(npm_indices):
+                    in_queue.put((j, index, ))
+
+                j = []
+                for _ in range(P):
+                    j.append(pool.apply_async(mp_swarm, [], kwds=swarm_kwds))
+
+
+                with tqdm.tqdm(total=M) as pbar:
+
+                    while not np.all(done):
+
+                        # Check for output.
+                        try:
+                            r = out_queue.get(timeout=30)
+
+                        except mp.queues.Empty:
+                            logger.info("No npm_results")
+                            break
+
+                        else:
+                            j, index, result, meta = r
+
+                            done[j] = True
+                            if result is not None:
+                                npm_results[j] = utils._pack_params(**result)
+
+                            pbar.update(1)
+
+
+            # Remove any as outliers / bad optimization?
+            tol_sigma = model_config["tol_sum_sigma"]
+            tol_proximity = model_config["tol_proximity"]
+
+            parameter_names = ("theta", "mu_single", "sigma_single", "mu_multiple", "sigma_multiple")
+
+
+            lower_bounds = np.array([model_config["bounds"].get(k, [-np.inf])[0] for k in parameter_names])
+            upper_bounds = np.array([model_config["bounds"].get(k, [+np.inf])[-1] for k in parameter_names])
+
+            for iteration in range(5): # MAGIC HACK
+
+                sigma = np.abs(npm_results - np.nanmedian(npm_results, axis=0)) \
+                      / np.std(npm_results, axis=0)
+                sigma = np.nansum(sigma, axis=1)
+
+                # Only care about indices 1 and 2
+                lower_bounds[3:] = -np.inf
+                upper_bounds[3:] = +np.inf
+                lower_bounds[0] = -np.inf
+                upper_bounds[0] = +np.inf
+
+                not_ok_bound = np.any(
+                    (np.abs(npm_results - lower_bounds) <= tol_proximity) \
+                  + (np.abs(npm_results - upper_bounds) <= tol_proximity), axis=1)
+
+                not_ok_sigma = sigma > tol_sigma
+
+                not_ok = not_ok_bound + not_ok_sigma + np.any(~np.isfinite(npm_results), axis=1)
+                
+                print(f"Going to run {sum(not_ok)} sources because they were bad")
+
+
+                done[not_ok] = False
+                sp_swarm(*npm_indices[not_ok],
+                         inits=[np.nanmedian(npm_results[~not_ok], axis=0), "random"],
+                         debug=False)
+
+                print(f"There were {sum(not_ok_sigma)} results discarded for being outliers")
+                print(f"There were {sum(not_ok_bound)} results discarded for being close to the edge")
+                print(f"There were {sum(not_ok)} results discarded in total")
+
+
+
+            for i, parameter_name in enumerate(parameter_names):
+
+                kwds = dict(c=npm_results.T[i], s=1)
+                kwds.update(vmin=np.nanmin(kwds["c"]), vmax=np.nanmax(kwds["c"]))
+
+                
+                fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+                scat = axes[0].scatter(X[npm_indices, 0], X[npm_indices, 1], **kwds)
+                scat = axes[1].scatter(X[npm_indices, 0], X[npm_indices, 2], **kwds)
+
+                axes[0].set_ylabel(model_config["kdtree_label_names"][1])
+                axes[1].set_ylabel(model_config["kdtree_label_names"][2])
+
+                for ax in axes:
+                    ax.set_title(model_name)
+                    ax.set_xlabel(model_config["kdtree_label_names"][0])
+                    ax.set_ylim(ax.get_ylim()[::-1])
+
+                cbar = plt.colorbar(scat)
+                cbar.set_label(parameter_name)
+
+                fig.tight_layout()
+
+
+
+            def normal_lpdf(y, mu, sigma):
+                ivar = sigma**(-2)
+                return 0.5 * (np.log(ivar) - np.log(2 * np.pi) - (y - mu)**2 * ivar)
+
+            def lognormal_lpdf(y, mu, sigma):
+                ivar = sigma**(-2)
+                return - 0.5 * np.log(2 * np.pi) - np.log(y * sigma) \
+                       - 0.5 * (np.log(y) - mu)**2 * ivar
+
+            def plot_pdf(y, theta, mu_single, sigma_single, sigma_multiple, **kwargs):
+
+                x = np.linspace(0, np.max(y), 100)
+
+                mu_multiple = np.log(mu_single + mu_multiple_scalar * sigma_single) + sigma_multiple**2
+
+                log_ps = np.log(theta) + normal_lpdf(x, mu_single, sigma_single)
+                log_pm = np.log(1 - theta) + lognormal_lpdf(x, mu_multiple, sigma_multiple)
+
+                fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+                axes[0].plot(x, np.exp(log_ps))
+                axes[0].plot(x, np.exp(log_pm))
+                axes[0].hist(y, bins=30, facecolor="#666666", alpha=0.5, normed=True)
+
+                axes[1].plot(x, log_ps)
+                axes[1].plot(x, log_pm)
+
+                return fig
+
+            
+            def plot_bad_index(npm_index):
+
+                X_index = npm_indices[npm_index]
+            
+                d, nearby_idx, meta = npm.query_around_point(kdt, X[X_index], **kdt_kwds)
+
+                y = Y[nearby_idx]
+
+                w, mu_single, sigma_single, _, sigma_multiple = npm_results[npm_index]
+                args = (w, mu_single, sigma_single, sigma_multiple)
+
+                return (y, args, plot_pdf(y, *args))
+
+
+
+
+            # Save results.
+            with h5.File(results_path, "a") as results:
+
+                group = results.create_group(f"models/{model_name}", track_order=True)
+
+                # Data used for non-parametric model.
+                group.create_dataset("source_id", data=sources["source_id"][()][data_mask][npm_indices])
+                group.create_dataset("source_indices", data=data_indices[npm_indices])
+
+                # Estimates of the model parameters for each source_id.
+                for i, k in enumerate(parameter_names):
+                    group.create_dataset(k, data=npm_results.T[i])
+
+                group.create_dataset("is_outlier", data=not_ok)

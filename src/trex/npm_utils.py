@@ -231,24 +231,6 @@ def query_around_point(kdtree, point, offsets=0, scales=1, minimum_radius=None,
 
 
 
-
-
-
-def label_excess(y, p_opt, label_index):
-
-    y = np.atleast_1d(y)
-    _, s_mu, s_sigma, __, ___ = utils._unpack_params(utils._pack_params(**p_opt))
-
-    assert s_mu.size == y.size, "The size of y should match the size of mu"
-
-    excess = np.sqrt(y[label_index]**2 - s_mu[label_index]**2)
-    significance = excess/s_sigma[label_index]
-
-    return (excess, significance)
-
-
-
-
 def build_kdt(X_norm, **kwargs):
 
     kdt_kwds = dict(leaf_size=40, metric="minkowski")
@@ -266,13 +248,13 @@ def get_ball_around_point(kdt, point, K=1000, scale=1, offset=0, full_output=Fal
 
 
 
-def _get_1d_initialisation_point(y, scalar, bounds=None):
+def get_1d_initialisation_point(y, scalar, bounds=None):
 
     N= y.size
 
     init = dict(
         theta=0.75,
-        mu_single=np.min([np.median(y, axis=0), 10]),
+        mu_single=np.median(y),
         sigma_single=0.2,
         sigma_multiple=0.5)
 
@@ -316,43 +298,3 @@ def _get_1d_initialisation_point(y, scalar, bounds=None):
     valid_inits.append("random")
 
     return valid_inits
-
-
-def get_initialization_point(y):
-    N, D = y.shape
-
-    ok = y <= np.mean(y)
-
-    init_dict = dict(
-        theta=0.5,
-        mu_single=np.median(y[ok], axis=0),
-        sigma_single=0.1 * np.median(y[ok], axis=0),
-        sigma_multiple=0.1 * np.ones(D),
-    )
-
-
-
-    # mu_multiple is *highly* constrained. Select the mid-point between what is
-    # OK:
-    mu_multiple_ranges = np.array([
-        np.log(init_dict["mu_single"] + 1 * init_dict["sigma_single"]) + init_dict["sigma_multiple"]**2,
-        np.log(init_dict["mu_single"] + 5 * init_dict["sigma_single"]) + pow(init_dict["sigma_multiple"], 2)
-    ])
-
-    init_dict["mu_multiple"] = np.mean(mu_multiple_ranges, axis=0)
-    #init_dict["mu_multiple_uv"] = 0.5 * np.ones(D)
-
-    x0 = utils._pack_params(**init_dict)
-    
-    op_kwds = dict(x0=x0, args=(y, D))
-
-    p_opt = op.minimize(nlp, **op_kwds)
-    
-    init_dict = dict(zip(
-        ("theta", "mu_single", "sigma_single", "mu_multiple", "sigma_multiple"),
-        utils._unpack_params(p_opt.x)))
-    init_dict["mu_multiple_uv"] = 0.5 * np.ones(D)
-
-    init_dict = utils._check_params_dict(init_dict)
-
-    return init_dict
