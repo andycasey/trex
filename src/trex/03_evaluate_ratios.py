@@ -59,7 +59,9 @@ def clipped_predictions(theta, mu_single, sigma_single, sigma_multiple, bounds):
 
 
 
-def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple_scalar):
+
+def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple_scalar,
+                  sigmoid_strength=50):
 
     with warnings.catch_warnings(): 
         # I'll log whatever number I want python you can't tell me what to do
@@ -70,29 +72,20 @@ def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple
         ln_s = np.log(theta) + utils.normal_lpdf(y, mu_single, sigma_single)
         ln_m = np.log(1-theta) + utils.lognormal_lpdf(y, mu_multiple, sigma_multiple)
 
-        # FIX BAD SUPPORT.
+        # Truncated distribution
+        sigmoid = 1/(1 + np.exp(-sigmoid_strength * (y - mu_single)))
+        ln_m = np.log(np.exp(ln_m) * sigmoid)
 
-        raise NotImplementedError("update the c_single so it has a truncated normal")
-
-        # This is a BAD MAGIC HACK where we are just going to flip things.
-        """
-        limit = mu_single - 2 * sigma_single
-        bad_support = (y <= limit) * (ln_m > ln_s)
-        ln_s_bs = np.copy(ln_s[bad_support])
-        ln_m_bs = np.copy(ln_m[bad_support])
-        ln_s[bad_support] = ln_m_bs
-        ln_m[bad_support] = ln_s_bs
-        """
         ln_s = np.atleast_1d(ln_s)
         ln_m = np.atleast_1d(ln_m)
 
         lp = np.array([ln_s, ln_m]).T
 
-        #assert np.all(np.isfinite(lp))
-
         p_single = np.exp(lp[:, 0] - special.logsumexp(lp, axis=1))
 
     return (p_single, ln_s, ln_m)
+
+
 
 
 SMALL = 1e-5
@@ -145,7 +138,6 @@ if __name__ == "__main__":
     kw = dict(shape=(N, ), dtype=float, fillvalue=np.nan)
 
     # Because we track the order when things are created, let's do it in a sensible way.
-
     for model_name in model_names:
         predictor_label_name = config["models"][model_name]["predictor_label_name"]
         group.create_dataset(predictor_label_name, data=sources[predictor_label_name][()][source_indices])
@@ -238,7 +230,7 @@ if __name__ == "__main__":
                 bounds[m])
 
             obj_p_singles[_slice], obj_ln_s[_slice], obj_ln_m[_slice] \
-                = calc_p_single(y, *draws, mu_multiple_scalar=3)
+                = calc_p_single(y, *draws, mu_multiple_scalar=model_config["mu_multiple_scalar"])
 
         # Now calculate the joint probabilities
         obj_ln_s[-1, :] = np.nansum(obj_ln_s[:-1, :], axis=0)
@@ -254,8 +246,6 @@ if __name__ == "__main__":
         p[p == -1] = np.nan
         return p
 
-
-    #foo = calc_probs(ys[0], gp_predictions[0], bounds, N_draws, percentiles)
 
     def mp_swarm(*_, bounds, in_queue=None, out_queue=None):
 
@@ -290,11 +280,6 @@ if __name__ == "__main__":
                     break
 
                 out_queue.put((i, p))
-                #print("done")
-
-        #print("out")
-
-
 
     P = 8
     with mp.Pool(processes=P) as pool:
