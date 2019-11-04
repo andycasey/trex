@@ -76,6 +76,14 @@ def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple
         sigmoid = 1/(1 + np.exp(-sigmoid_strength * (y - mu_single)))
         ln_m = np.log(np.exp(ln_m) * sigmoid)
 
+        # Do checks:
+        left = y < mu_single
+        assert ln_s[left] >= ln_m[left], "more support for ln_m at low values"
+
+        turnover = np.min(y[(ln_m >= ln_s) * (y >= mu_single)])
+        right = y >= turnover
+        assert ln_m[right] >= ln_s[right], "irregularity in support at high values"
+
         ln_s = np.atleast_1d(ln_s)
         ln_m = np.atleast_1d(ln_m)
 
