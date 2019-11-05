@@ -169,6 +169,7 @@ if __name__ == "__main__":
 
                 logger.info(f"Restricting to sources with {parameter_name}: [{lower:.1f}, {upper:.1f}]")
 
+        """
         if model_name == "ast":
             logger.info("Applying astrometric-specific cuts to data")
 
@@ -181,9 +182,7 @@ if __name__ == "__main__":
                     + ((sources["phot_g_mean_mag"][()] <  6) * (sources["j_ast"][()] > lim))
 
             data_mask *= ~exclude
-
-
-
+        """
 
         data_indices = np.where(data_mask)[0]
 
@@ -374,7 +373,19 @@ if __name__ == "__main__":
                     else:
                         if p_opt is not None:
                             p_opts.append(p_opt["par"])
-                            ln_probs.append(p_opt["value"])
+                            ln_probs.append(p_opt["value"])                            
+
+
+                            s = np.argsort(y)
+
+                            fig, ax = plt.subplots()
+                            ax.plot(y[s], p_opt["par"]["ll_s"][s], c="tab:blue")
+                            ax.plot(y[s], p_opt["par"]["ll_m"][s], c="tab:red")
+
+                            if np.random.choice(200, 1)[0] == 42:
+                                raise a
+
+
                 try:
                     p_opt
 
@@ -404,6 +415,8 @@ if __name__ == "__main__":
                 idx = np.argmax(ln_probs)
                 p_opt = p_opts[idx]
                 meta["init_idx"] = idx
+
+
 
                 return (index, p_opt, meta)
 
@@ -435,14 +448,14 @@ if __name__ == "__main__":
 
                     npm_index = np.where(npm_indices == index)[0]
 
-                    print(f"{index}, {npm_index}")
+                    #print(f"{index}, {npm_index}")
                     if done[npm_index]: 
                         print("Skipping because done")
                         continue
 
                     _, result, meta = optimize_mixture_model(index, **kwargs)
 
-                    print(f"result: {result}")
+                    #print(f"result: {result}")
                     pbar.update()
 
                     done[npm_index] = True
@@ -499,7 +512,7 @@ if __name__ == "__main__":
         optimize_mixture_model_kwds = dict(inits=None, debug=False)
 
 
-        if not config.get("multiprocessing", False):
+        if True or not config.get("multiprocessing", False):
             sp_swarm(*npm_indices, **optimize_mixture_model_kwds)
 
 

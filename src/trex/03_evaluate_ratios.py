@@ -53,15 +53,201 @@ def clipped_predictions(theta, mu_single, sigma_single, sigma_multiple, bounds):
     theta = np.clip(theta, *bounds["theta"])
     mu_single = np.clip(mu_single, *bounds["mu_single"])
     sigma_single = np.clip(sigma_single, *bounds["sigma_single"])
-    sigma_multiple = np.clip(sigma_single, *bounds["sigma_multiple"])
+    sigma_multiple = np.clip(sigma_multiple, *bounds["sigma_multiple"])
 
     return np.array([theta, mu_single, sigma_single, sigma_multiple])
 
 
 
+def check_support(theta, mu_single, sigma_single, sigma_multiple, mu_multiple_scalar,
+                  sigmoid_fraction, max_sigma_single_away, N):
+
+    max_x = np.max(mu_single + max_sigma_single_away * sigma_single)
+    epsilon = 0.01
+    x = np.atleast_2d(np.linspace(epsilon, max_x, N)).T
+
+    # Chose some index.
+
+    
+    '''
+    index = 35
+    f = lambda x: np.log(1 - theta[index]) + utils.lognormal_lpdf(x, mu_multiple[index], sigma_multiple[index]) \
+                - np.log(theta[index]) + utils.normal_lpdf(x, mu_single[index], sigma_single[index])
+
+    g = lambda x: (np.log(x) - mu_multiple[index])/(sigma_multiple[index]**2 * x) + (x - mu_single[index])/sigma_single[index]**2 - 1/x
+
+    from scipy.optimize import brentq
+
+    result = brentq(g, epsilon, mu_single)
+
+    raise a
+
+    result = root_scalar(f, bracket=(epsilon, mu_single))
+
+    raise a
+    '''
+
+    theta = np.atleast_2d(theta)
+    mu_single = np.atleast_2d(mu_single)
+    sigma_single = np.atleast_2d(sigma_single)
+    sigma_multiple = np.atleast_2d(sigma_multiple)
+
+    with warnings.catch_warnings(): 
+        # I'll log whatever number I want python you can't tell me what to do
+        warnings.simplefilter("ignore") 
+
+        K = theta.shape[1]
+
+        mu_multiple = np.log(mu_single + mu_multiple_scalar * sigma_single) + sigma_multiple**2
+
+        ln_s = np.log(theta) + utils.normal_lpdf(x, mu_single, sigma_single)
+        ln_m_orig = np.log(1-theta) + utils.lognormal_lpdf(x, mu_multiple, sigma_multiple)
+
+        '''
+        # default
+        default_sigmoid_strength = (1.5 * (1.0/sigma_single) * np.log(1/sigmoid_fraction - 1)).flatten()
+        default_sigmoid = 1/(1 + np.exp(-default_sigmoid_strength * (x - mu_single)))
+
+        # Calc at low values.
+        #epsilon = 1e-3
+        R = -ln_s[0] + ln_m_orig[0]
+
+        diff = 10
+
+        numerator = -(diff + R + np.log(1 - 1/np.exp(diff + R)))
+        other_sigmoid_strength = (numerator/(x[0,0] - mu_single)).flatten()
+
+        ok = np.isfinite(other_sigmoid_strength)
+        sigmoid_strength = np.copy(default_sigmoid_strength)
+        sigmoid_strength[ok] = np.max(np.vstack([default_sigmoid_strength, other_sigmoid_strength])[:, ok], axis=0)#np.max([np.other_sigmoid_strength[ok]
+        sigmoid_strength = np.atleast_2d(sigmoid_strength).reshape((1, -1))
+
+        corrected = sigmoid_strength != default_sigmoid_strength
+
+        if np.any(corrected):
+
+            indices = np.where(corrected.flatten())
+
+
+            raise a
+
+
+        #sigmoid_strength = 10000 * np.ones_like(sigmoid_strength)
+        #print(np.max(sigmoid_strength))
+
+        # Truncated distribution
+        #sigmoid_strength = 10/sigma_single
+        # calculatge the sigmoid strength needed
+        # 1.5 is the safety factor
+        
+        sigmoid = 1/(1 + np.exp(-sigmoid_strength * (x - mu_single)))
+        #ln_m = np.log(np.exp(ln_m_orig) * sigmoid)
+
+        '''
+
+        #assert np.all(sigma_single < mu_single)
+
+        #if sigma_single < mu_single:
+        epsilon = sigma_single
+        #else:
+        #    epsilon = mu_single / 2.
+
+        C = np.log(theta) + utils.normal_lpdf(epsilon, mu_single, sigma_single)
+        sigmoid_strength = (1/epsilon) * np.exp(np.log(-C) - 1)
+
+        #print(sigmoid_strength)
+
+        sigmoid = 1/(1 + np.exp(-sigmoid_strength * (x - mu_single)))
+        default_sigmoid = 1/(1 + np.exp(-1e4 * (x - mu_single)))
+
+        ln_m = ln_m_orig + np.log(sigmoid)
+        ln_m_default = ln_m_orig + np.log(default_sigmoid)
+
+        finite = np.isfinite(ln_m) * np.isfinite(ln_s)
+        left = (x < mu_single) * finite
+        ok_at_low_values = np.zeros(K, dtype=bool)
+        for k in range(K):
+            mask = finite[:, k] * (x.T[0] < mu_single[:, k])
+            ok_at_low_values[k] = np.all(ln_s[mask, k] >= ln_m[mask, k])
+
+
+        turnover_indices = (((ln_m >= ln_s) * finite * (x > mu_single)) != 0).argmax(axis=0)
+        ok_at_high_values = np.ones(theta.shape[1], dtype=bool)
+        if any(turnover_indices):
+
+            turnover = x[turnover_indices]
+            right = (x > turnover.T)
+            for i in range(theta.shape[1]):
+                ba = (x > turnover[i, 0]).flatten()
+                ok_at_high_values[i] = np.all(ln_m[ba, i] >= ln_s[ba, i])
+
+        '''
+        if np.any(corrected):
+            indices = np.where(corrected.flatten())[0][:3]
+
+            for index in indices:
+                fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+                axes[0].plot(x.T[0], ln_s.T[index], c="tab:blue")
+                axes[0].plot(x.T[0], ln_m.T[index], c="tab:green")
+                axes[0].plot(x.T[0], ln_m_default.T[index], c="tab:red")
+                axes[1].plot(x.T[0], np.exp(ln_s.T[index]), c="tab:blue")
+                axes[1].plot(x.T[0], np.exp(ln_m.T[index]), c="tab:green")
+                axes[1].plot(x.T[0], np.exp(ln_m_default.T[index]), c="tab:red")
+                axes[0].set_title(index)
+
+            print("some corrected")
+            raise a
+        '''
+
+        if False or not all(ok_at_low_values):
+
+            #indices = np.where(~ok_at_low_values.flatten())[0][:3]
+
+            indices = np.random.choice(256, 5, replace=False)
+
+            for index in indices:
+                fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+                axes[0].plot(x.T[0], ln_s.T[index], c="tab:blue")
+                axes[0].plot(x.T[0], ln_m.T[index], c="tab:green")
+                axes[0].plot(x.T[0], ln_m_default.T[index], c="tab:red")
+                axes[1].plot(x.T[0], np.exp(ln_s.T[index]), c="tab:blue")
+                axes[1].plot(x.T[0], np.exp(ln_m.T[index]), c="tab:green")
+                axes[1].plot(x.T[0], np.exp(ln_m_default.T[index]), c="tab:red")
+                axes[0].set_title(index)
+
+            print("some fucked")
+            
+            raise a
+        '''
+
+
+        if not all(ok_at_high_values):
+
+            indices = np.where(~ok_at_high_values)[0][:3]
+            for index in indices:
+                fig, ax = plt.subplots()
+                ax.plot(x.T[0], ln_s.T[index], c="tab:blue")
+                ax.plot(x.T[0], ln_m.T[index], c="tab:red")
+                ax.set_title(index)
+
+            raise a
+        '''
+        assert all(ok_at_low_values), "more support for ln_m at low values"
+        #assert all(ok_at_high_values), "irregularity in support at high values"
+
+
+
+    return (all(ok_at_low_values), all(ok_at_high_values))
+
 
 def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple_scalar,
-                  sigmoid_strength=50):
+                  sigmoid_fraction=1e-3, max_sigma_single_away=5, N=100):
+
+    check_support(theta, mu_single, sigma_single, sigma_multiple, 
+                  mu_multiple_scalar=mu_multiple_scalar,  sigmoid_fraction=sigmoid_fraction,
+                  max_sigma_single_away=max_sigma_single_away, N=N)
+
+
 
     with warnings.catch_warnings(): 
         # I'll log whatever number I want python you can't tell me what to do
@@ -73,16 +259,9 @@ def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple
         ln_m = np.log(1-theta) + utils.lognormal_lpdf(y, mu_multiple, sigma_multiple)
 
         # Truncated distribution
+        sigmoid_strength = (1.0/sigma_single) * np.log(1/sigmoid_fraction - 1)
         sigmoid = 1/(1 + np.exp(-sigmoid_strength * (y - mu_single)))
         ln_m = np.log(np.exp(ln_m) * sigmoid)
-
-        # Do checks:
-        left = y < mu_single
-        assert ln_s[left] >= ln_m[left], "more support for ln_m at low values"
-
-        turnover = np.min(y[(ln_m >= ln_s) * (y >= mu_single)])
-        right = y >= turnover
-        assert ln_m[right] >= ln_s[right], "irregularity in support at high values"
 
         ln_s = np.atleast_1d(ln_s)
         ln_m = np.atleast_1d(ln_m)
@@ -205,7 +384,7 @@ if __name__ == "__main__":
         gp_predictions[a_idx, m, 3] = results[f"models/{model_name}/gp_predictions/sigma_multiple"][()]
 
         b = model_config["bounds"]
-        b.update(theta=[0, 1])
+        b.update(theta=[0.5, 1])
         b["theta"] = np.array(b["theta"]) + [+SMALL, -SMALL]
         bounds.append(b)
 
@@ -282,12 +461,21 @@ if __name__ == "__main__":
                 
                 #print(f"in mp swarm {i} {y} {gpp} {in_queue} {out_queue}")
                 try:
-                    p = calc_probs(y, gpp, bounds, 256, [2.5, 16, 50, 8, 97.5])
+                    p = calc_probs(y, gpp, bounds, 256, [2.5, 16, 50, 84, 97.5])
                 except:
                     logger.exception("failured")
                     break
 
                 out_queue.put((i, p))
+
+    """
+    for 
+
+    """
+    for i, (y, gpp) in enumerate(tqdm(zip(ys, gp_predictions), total=N)):
+        p = calc_probs(y, gpp, bounds, 256, [2.5, 16, 50, 84, 97.5])
+
+    assert False
 
     P = 8
     with mp.Pool(processes=P) as pool:

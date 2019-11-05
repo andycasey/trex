@@ -1,6 +1,6 @@
 # inputs and outputs
 data_path: data/5482.hdf5
-model_path: src/trex/nlnmm-fixed.stan
+model_path: src/trex/ntlnmm.stan
 results_path: results/{unique_hash}/results.h5
 
 # reproducibility
