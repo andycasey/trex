@@ -7,6 +7,7 @@ import numpy as np
 import logging
 from scipy import optimize as op
 from hashlib import md5
+import matplotlib.pyplot as plt
 import sys
 
 

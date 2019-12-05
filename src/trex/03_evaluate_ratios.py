@@ -243,9 +243,9 @@ def check_support(theta, mu_single, sigma_single, sigma_multiple, mu_multiple_sc
 def calc_p_single(y, theta, mu_single, sigma_single, sigma_multiple, mu_multiple_scalar,
                   sigmoid_fraction=1e-3, max_sigma_single_away=5, N=100):
 
-    check_support(theta, mu_single, sigma_single, sigma_multiple, 
-                  mu_multiple_scalar=mu_multiple_scalar,  sigmoid_fraction=sigmoid_fraction,
-                  max_sigma_single_away=max_sigma_single_away, N=N)
+    #check_support(theta, mu_single, sigma_single, sigma_multiple, 
+    #              mu_multiple_scalar=mu_multiple_scalar,  sigmoid_fraction=sigmoid_fraction,
+    #              max_sigma_single_away=max_sigma_single_away, N=N)
 
 
 

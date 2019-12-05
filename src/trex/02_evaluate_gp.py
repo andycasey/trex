@@ -14,6 +14,7 @@ from hashlib import md5
 import sys
 from tqdm import tqdm
 
+import matplotlib.pyplot as plt
 
 from time import time
 import george

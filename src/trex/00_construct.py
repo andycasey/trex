@@ -296,7 +296,7 @@ if __name__ == "__main__":
         done = np.zeros(M, dtype=bool)
 
 
-        mu_multiple_scalar = config.get("mu_multiple_scalar", 3)
+        mu_multiple_scalar = model_config["mu_multiple_scalar"]
 
         '''
         def normal_lpdf(y, mu, sigma):
@@ -375,7 +375,7 @@ if __name__ == "__main__":
                             p_opts.append(p_opt["par"])
                             ln_probs.append(p_opt["value"])                            
 
-
+                            '''
                             s = np.argsort(y)
 
                             fig, ax = plt.subplots()
@@ -384,7 +384,7 @@ if __name__ == "__main__":
 
                             if np.random.choice(200, 1)[0] == 42:
                                 raise a
-
+                            '''
 
                 try:
                     p_opt
@@ -512,7 +512,7 @@ if __name__ == "__main__":
         optimize_mixture_model_kwds = dict(inits=None, debug=False)
 
 
-        if True or not config.get("multiprocessing", False):
+        if not config.get("multiprocessing", False):
             sp_swarm(*npm_indices, **optimize_mixture_model_kwds)
 
 

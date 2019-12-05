@@ -36,8 +36,7 @@ models:
       bp_rp: [-0.5, 5]
       absolute_g_mag: [-10, 12]
       phot_g_mean_mag: [3, 15]
-      j_ast: [0, 30]
-
+      
     # kdtree settings
     kdtree_label_names: [bp_rp, absolute_g_mag, phot_g_mean_mag]
     kdtree_maximum_points: 128
@@ -59,7 +58,7 @@ models:
       sigma_multiple: [0, 1.5]
 
     # mixture model parameter settings
-    mu_multiple_scalar: 3
+    mu_multiple_scalar: 1
     tol_sum_sigma: 10
     tol_proximity: 0.001
 
@@ -77,7 +76,6 @@ models:
       bp_rp: [-0.5, 5]
       absolute_g_mag: [-10, 12]
       phot_g_mean_mag: [3, 15]
-      j_rv: [0, 20]
 
 
     # kdtree settings
@@ -102,7 +100,7 @@ models:
 
     # mixture model parameter settings
 
-    mu_multiple_scalar: 3
+    mu_multiple_scalar: 1
     tol_sum_sigma: 10
     tol_proximity: 0.001
 

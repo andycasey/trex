@@ -15,7 +15,7 @@ number_of_sources_for_gaussian_process: 1000
 
 # debugging
 suppress_stan_output: true
-sample_mixture_model: falserun
+sample_mixture_model: false
 plot_mixture_model_figures: false
 
 ignore_keywords_when_creating_hash:
@@ -33,30 +33,30 @@ models:
   ast:
     # bounds of the data to consider for this model
     data_bounds:
-      bp_rp: [-0.5, 5]
       absolute_g_mag: [-15, 15]
       phot_g_mean_mag: [3, 15]
+      j_ast: [0, 12] # 12 is the >99.9th percentile
 
     # kdtree settings
     kdtree_label_names: [bp_rp, absolute_g_mag, phot_g_mean_mag]
-    kdtree_maximum_points: 1024
-    kdtree_maximum_radius: [0.5, 1, 1]
+    kdtree_maximum_points: 128
+    kdtree_maximum_radius: [1, 1, 1]
     kdtree_minimum_points: 128
     kdtree_minimum_radius: [0.1, 0.1, 0.1]
-    kdtree_relative_scales: [0.05, 0.5, 0.5]
+    kdtree_relative_scales: [0.1, 1, 1]
     predictor_label_name: j_ast
 
-    coreset_method: grid
+    coreset_method: random
 
     # mixture model parameter bounds
     bounds:
-      theta: [0.5, 1.1]
-      mu_single: [0.25, 0]
-      sigma_single: [0.025, 1]
-      sigma_multiple: [0.1, 2]
+      theta: [0.25, 1]
+      mu_single: [0.25, 25]
+      sigma_single: [0.05, 5]
+      sigma_multiple: [0, 0.3]
 
     # mixture model parameter settings
-    mu_multiple_scalar: 3
+    mu_multiple_scalar: 1
     tol_sum_sigma: 100000
     tol_proximity: 0.0000001
 
@@ -72,30 +72,29 @@ models:
   rv:
     # bounds of the data to consider for this model
     data_bounds:
-      bp_rp: [-0.5, 5]
       absolute_g_mag: [-15, 15]
       phot_g_mean_mag: [3, 15]
     
     # kdtree settings
     kdtree_label_names: [bp_rp, absolute_rp_mag, phot_rp_mean_mag]
-    kdtree_maximum_points: 1024
-    kdtree_maximum_radius: [0.5, 1, 1]
+    kdtree_maximum_points: 128
+    kdtree_maximum_radius: [1, 1, 1]
     kdtree_minimum_points: 128
     kdtree_minimum_radius: [0.1, 0.1, 0.1]
-    kdtree_relative_scales: [0.05, 0.5, 0.5]
+    kdtree_relative_scales: [0.1, 1, 1]
     predictor_label_name: j_rv
 
-    coreset_method: grid
+    coreset_method: random
 
     # mixture model parameter bounds
     bounds:
-      theta: [0.5, 1]
+      theta: [0.25, 1]
       mu_single: [0.05, 15]
-      sigma_single: [0.25, 5]
-      sigma_multiple: [0.2, 1.6]
+      sigma_single: [0.1, 5]
+      sigma_multiple: [0.2, 1]
 
     # mixture model parameter settings
-    mu_multiple_scalar: 3
+    mu_multiple_scalar: 1
     tol_sum_sigma: 100000
     tol_proximity: 0.0000001
 

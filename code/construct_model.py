@@ -467,11 +467,18 @@ if __name__ == "__main__":
         def sp_swarm(*sp_indices, **kwargs):
 
             logger.info("Running single processor swarm")
+            print(sp_indices)
 
             with tqdm.tqdm(sp_indices, total=len(sp_indices)) as pbar:
 
-                for j, index in enumerate(sp_indices):
-                    if done[j]: continue
+                for index in sp_indices:
+                    j = np.where(npm_indices == index)[0][0]
+
+                    if done[j]: 
+                        print(f"Skipping {j} {index} because done")
+                        continue
+
+                    print(f"Kwargs {kwargs}")
 
                     _, result, meta = optimize_mixture_model(index, **kwargs)
 
@@ -594,7 +601,7 @@ if __name__ == "__main__":
         lower_bounds = np.array([model_config["bounds"].get(k, [-np.inf])[0] for k in parameter_names])
         upper_bounds = np.array([model_config["bounds"].get(k, [+np.inf])[-1] for k in parameter_names])
 
-        for iteration in range(3): # MAGIC HACK
+        for iteration in range(10): # MAGIC HACK
 
             sigma = np.abs(npm_results - np.median(npm_results, axis=0)) \
                   / np.std(npm_results, axis=0)
@@ -613,7 +620,7 @@ if __name__ == "__main__":
             not_ok_sigma = sigma > tol_sigma
 
             not_ok = not_ok_bound + not_ok_sigma
-            not_ok = not_ok_sigma
+            #not_ok = not_ok_sigma
 
             done[not_ok] = False
             sp_swarm(*npm_indices[not_ok],
@@ -623,6 +630,10 @@ if __name__ == "__main__":
             print(f"There were {sum(not_ok_sigma)} results discarded for being outliers")
             print(f"There were {sum(not_ok_bound)} results discarded for being close to the edge")
             print(f"There were {sum(not_ok)} results discarded in total")
+
+            if not any(not_ok):
+                break
+            
 
         # Save results.
         with h5.File(results_path, "a") as results:
@@ -658,6 +669,19 @@ if __name__ == "__main__":
             ax.scatter(X[npm_indices, 0][not_ok], X[npm_indices, 1][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
                 **kwds)
 
+
+            # Show outliers.
+            bad = not_ok_bound + not_ok_sigma
+
+            ax.scatter(X[npm_indices, 0][bad],
+                       X[npm_indices, 1][bad],
+                       s=50, facecolor="none",
+                       edgecolor="r", zorder=10)
+
+            a[1].scatter(X[npm_indices, 0][bad],
+                         X[npm_indices, 2][bad],
+                         s=50, facecolor="none", edgecolor="r", zorder=10)
+
             try:
                 a[1].scatter(X[npm_indices, 0], X[npm_indices, 2], c=npm_results.T[i], s=1, **kwds)
                 a[1].scatter(X[npm_indices, 0][not_ok], X[npm_indices, 2][not_ok], s=10, facecolor="none", edgecolor="k", zorder=-1,
@@ -669,3 +693,42 @@ if __name__ == "__main__":
             for ax in a:
                 ax.set_ylim(ax.get_ylim()[::-1])
             cbar = plt.colorbar(scat)
+
+
+        def plot_stuff(npm_idx):
+
+            index = npm_indices[npm_idx]
+
+            d, nearby_idx, meta = npm.query_around_point(kdt, X[index], **kdt_kwds)
+
+            y = Y[nearby_idx]
+            ball = X[nearby_idx]
+
+            print(np.max(y))
+
+            inits = npm._get_1d_initialisation_point(
+                y, scalar=mu_multiple_scalar, bounds=bounds)
+
+            
+            fig, ax = plt.subplots()
+            ax.hist(y, normed=True, bins=np.linspace(0, 10, 100))
+
+            theta, mu_single, sigma_single, mu_multiple, sigma_multiple = npm_results[npm_idx]
+
+            xi = np.linspace(0, 10, 100)
+            ax.plot(xi, utils.norm_pdf(xi, mu_single, sigma_single, theta), c='r', lw=2)
+            ax.plot(xi, utils.lognorm_pdf(xi, mu_multiple, sigma_multiple, theta), c='g', lw=2)
+
+            ax.plot(xi, utils.lognorm_pdf(xi, mu_multiple, 0.1, theta), c='k', lw=2)
+
+            for init in inits:
+                if init == "random": continue
+
+                ax.plot(xi, utils.norm_pdf(xi, init["mu_single"], init["sigma_single"], init["theta"]), c='r', lw=1)
+                ax.plot(xi, utils.lognorm_pdf(xi, init["mu_multiple"], init["sigma_multiple"], init["theta"]), c='g', lw=1)
+
+
+
+
+        if any(not_ok):
+            raise a

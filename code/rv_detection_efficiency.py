@@ -9,6 +9,9 @@ import h5py as h5
 import pickle
 import yaml
 import warnings
+import george
+import matplotlib.gridspec as gridspec
+
 
 from astropy.constants import G
 from astropy.table import Table
@@ -17,7 +20,7 @@ from astropy.time import Time
 from scipy import special, integrate
 from tqdm import tqdm
 from collections import OrderedDict
-
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
@@ -79,10 +82,10 @@ K = 2 * np.pi * a * np.sin(i) / (P * np.sqrt(1 - e**2))
 rv_nb_transits_centroids = np.logspace(0, np.log2(50), 10, base=2).astype(int)
 rv_nb_transits_centroids[0] = 0
 
-Q = 30
+Q = 75 # 7575 is about the most we can afford
 label_names_and_bins = OrderedDict([
     ("bp_rp", np.linspace(-0.5, 5, Q)),
-    ("absolute_rp_mag", np.linspace(-10, 10, Q)),
+    ("absolute_rp_mag", np.linspace(-12, 12, Q)),
     ("phot_rp_mean_mag", np.linspace(4, 14, Q)),
 ])
 
@@ -210,7 +213,7 @@ def p_single(rv_jitter, rv_nb_transits):
 
     # Let's do something dumb and just say if it's > mu + 3 * sigma 
     # and ignore the variance in estimating both of those quantities
-    detectable = (p_mu_single + 3 * p_sigma_single).reshape((-1, 1, 1))
+    detectable = (p_mu_single + 2 * p_sigma_single).reshape((-1, 1, 1))
 
     return rv_jitter >= detectable
 
@@ -219,36 +222,69 @@ def p_single(rv_jitter, rv_nb_transits):
 p = np.sum(p_single(v_stds, rv_nb_transits_centroids), axis=(1, 2)) \
   / (rv_nb_transits_centroids.size * N)
 
-# Now plot as a H-R diagram.
-def _plot_mean_p_single(bp_rp, absolute_rp_mag, phot_rp_mean_mag, p, 
-                        vmin=None, vmax=None, **kwargs):
 
-    x = bp_rp
-    y = absolute_rp_mag
+bp_rp, absolute_rp_mag, phot_rp_mean_mag = centroids
+p = p.reshape(list(map(lambda x: x.size, (bp_rp, absolute_rp_mag, phot_rp_mean_mag))))
+
+
+# Now plot as a H-R diagram.
+def _binned_detection_probability(ax, x, y, z, vmin=None, vmax=None, **kwargs):
 
     imshow_kwds = dict(vmin=vmin, vmax=vmax,
-                       aspect=np.ptp(x)/np.ptp(y),
+                       #aspect=np.ptp(x)/np.ptp(y),
                        extent=(np.min(x), np.max(x), np.max(y), np.min(y)),
                        cmap="inferno",
                        interpolation="none")
     imshow_kwds.update(kwargs)
+    
+    im = ax.imshow(z, **imshow_kwds)
+    #ax.set_xlim(x.min(), x.max())
+    #ax.set_ylim(y.min(), y.max())
 
-    H = np.mean(p.reshape((x.size, y.size, -1)), axis=-1)
+    return im
 
-    fig, ax = plt.subplots()
-    image = ax.imshow(H, **imshow_kwds)
 
-    colorbar = plt.colorbar(image, ax=ax)
 
+def binned_detection_probabilities(bp_rp, absolute_rp_mag, phot_rp_mean_mag, p, function=np.mean,
+                                   **kwargs):
+
+    fig = plt.figure(figsize=(8, 4))
+    
+    gs = gridspec.GridSpec(1, 3, width_ratios=[1, 1, 0.05])
+    axes = [fig.add_subplot(gs[i]) for i in range(3)]
+
+    kwds = dict(vmin=None, vmax=None)
+    kwds.update(**kwargs)
+
+    v = np.array([function(p, axis=2), function(p, axis=1)])
+
+    if kwds["vmin"] is None:
+        kwds.update(vmin=np.min(v))
+    if kwds["vmax"] is None:
+        kwds.update(vmax=np.max(v))
+
+
+    img1 = _binned_detection_probability(axes[0], bp_rp, absolute_rp_mag,
+                                         function(p, axis=2).T, **kwargs)
+
+    img2 = _binned_detection_probability(axes[1], bp_rp, phot_rp_mean_mag,
+                                         function(p, axis=1).T, **kwargs)
+
+    cbar = fig.colorbar(img2, cax=axes[2])
+    cbar.set_label(r"{mean detection efficiency}")
+
+    for ax in axes[:2]:
+        ax.set_xlabel(r"bp - rp")
+        ax.set_aspect("auto")
+        
+    axes[0].set_ylabel(r"{absolute rp mag}")
+    axes[1].set_ylabel(r"{apparent rp mag}")
+
+    fig.tight_layout()
+    
     return fig
 
 
-bp_rp, absolute_rp_mag, phot_rp_mean_mag = centroids
-
-
-fig = _plot_mean_p_single(bp_rp, absolute_rp_mag,phot_rp_mean_mag, p)
-
-
-
-
- 
+# TODO: Draw for only G < x or something?
+fig = binned_detection_probabilities(bp_rp, absolute_rp_mag, phot_rp_mean_mag, p,
+                                     function=np.mean)
