@@ -1,0 +1,22 @@
+name: trex
+channels:
+    - defaults 
+    - conda-forge
+dependencies:
+    - python=3.6
+    - h5py
+    - tqdm
+    - yaml
+    - astropy
+    - matplotlib
+    - scipy
+    - numpy
+    - george
+    - matplotlib
+    - scikit-learn
+    - ipython
+    - pip
+    - pip:
+        - corner
+        - pystan
+    #-twobody
