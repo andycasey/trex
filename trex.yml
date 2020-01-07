@@ -11,10 +11,10 @@ multiprocessing: true
 processes: 50
 
 # scale of data we can afford
-number_of_sources_for_gaussian_process: 2048
+number_of_sources_for_gaussian_process: 1024
 
 # debugging
-suppress_stan_output: true
+suppress_stan_output: false
 sample_mixture_model: false
 plot_mixture_model_figures: false
 
@@ -53,13 +53,13 @@ models:
     # mixture model parameter bounds
     bounds:
       theta: [0.5, 1]
-      mu_single: [0.25, 25]
+      mu_single: [0.5, 25]
       sigma_single: [0.025, 5]
-      sigma_multiple: [0, 1.5]
+      sigma_multiple: [0.05, 0.5]
 
     # mixture model parameter settings
     mu_multiple_scalar: 1
-    tol_sum_sigma: 10
+    tol_sum_sigma: 10000
     tol_proximity: 0.001
 
     # optionally specify an initial guess for the gaussian process hyperparameters
@@ -94,14 +94,14 @@ models:
     # mixture model parameter bounds
     bounds:
       theta: [0.5, 1]
-      mu_single: [0.25, 30]
+      mu_single: [0.5, 30]
       sigma_single: [0.025, 5]
-      sigma_multiple: [0, 1.5]
+      sigma_multiple: [0.05, 0.5]
 
     # mixture model parameter settings
 
     mu_multiple_scalar: 1
-    tol_sum_sigma: 10
+    tol_sum_sigma: 10000
     tol_proximity: 0.001
 
     # optionally specify an initial guess for the gaussian process hyperparameters
