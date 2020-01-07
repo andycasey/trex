@@ -21,8 +21,8 @@ data {
 parameters {
     real<lower=0.5, upper=1> theta; // the mixing parameter
     real<lower=bound_mu_single[1], upper=bound_mu_single[2]> mu_single; // single star distribution mean
-    real<lower=bound_sigma_single[1], upper=bound_sigma_single[2]> sigma_single; // single star distribution sigma
-    real<lower=bound_sigma_multiple[1], upper=bound_sigma_multiple[2]> sigma_multiple; // multiplcity log-normal distribution sigma
+    real<lower=(0.125 * mu_single), upper=bound_sigma_single[2]> sigma_single; // single star distribution sigma
+    real<lower=(sigma_single/(mu_single + sigma_single)), upper=bound_sigma_multiple[2]> sigma_multiple; // multiplcity log-normal distribution sigma
 }
 
 transformed parameters {
