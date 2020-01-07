@@ -13,6 +13,7 @@ from scipy import optimize as op
 from hashlib import md5
 import sys
 from tqdm import tqdm
+from copy import deepcopy
 
 import matplotlib.pyplot as plt
 
@@ -36,9 +37,42 @@ logger.setLevel(logging.INFO)
 
 if __name__ == "__main__":
 
+    if sys.argv[1].lower().endswith(".yml") or sys.argv[1].lower().endswith(".yaml"):
 
-    # Load in the results path.
-    results_path = sys.argv[1]
+        config_path = sys.argv[1]
+
+        with open(config_path, "r") as fp:
+            config = yaml.load(fp, Loader=yaml.Loader)
+
+        pwd = os.path.dirname(config_path)
+
+        random_seed = int(config["random_seed"])
+        np.random.seed(random_seed)
+
+        logger.info(f"Config path: {config_path} with seed {random_seed}")
+
+        # Generate a unique hash.
+        config_copy = deepcopy(config)
+        for k in config_copy.pop("ignore_keywords_when_creating_hash", []):
+            if k in config_copy:
+                del config_copy[k]
+
+            else:
+                if "/" in k:
+                    k1, k2, k3 = k.split("/")
+                    del config_copy[k1][k2][k3]
+
+
+        unique_hash = md5((f"{config_copy}").encode("utf-8")).hexdigest()[:5]
+        logger.info(f"Unique hash: {unique_hash}")
+
+        # Check results path now so we don't die later.
+        results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
+
+    else:
+        # Load in the results path.
+        results_path = sys.argv[1]
+
     results_dir = os.path.dirname(results_path)
 
     results = h5.File(results_path, "a")
@@ -57,6 +91,7 @@ if __name__ == "__main__":
     # TODO: store in config
     batch_size = 1000
 
+    '''
     # Specify the subset of sources where we will evaluate the GP.
     mask = np.ones(len(sources["source_id"]), dtype=bool)
 
@@ -70,6 +105,40 @@ if __name__ == "__main__":
     # Specify a random subset.
     source_indices = np.where(mask)[0]
     #source_indices = np.random.choice(np.where(mask)[0], 100_000, replace=False)
+    '''
+
+    # Common subset of source ids to run on.
+    N = len(sources["source_id"])
+    science_source_ids = np.loadtxt("../../data/catalogs/source_ids.txt", dtype=">i8")
+    is_finite_mask = np.ones(N, dtype=bool)
+    all_label_names = []
+    for model_name, model_config in config["models"].items():
+        all_label_names.extend([model_config["predictor_label_name"]] \
+                            + list(model_config["kdtree_label_names"]))
+
+        data_bounds = model_config.get("data_bounds", None)
+        if data_bounds:
+            for parameter_name, (upper, lower) in data_bounds.items():
+                lower, upper = np.sort([lower, upper])
+                is_finite_mask *= (upper >= sources[parameter_name][()]) \
+                                 * (sources[parameter_name][()] >= lower)
+
+    for ln in np.unique(all_label_names):
+        is_finite_mask *= np.isfinite(sources[ln][()])
+
+    # Run on a random 100,000 in  addition to the science source ids
+    subset_size = 100_000
+    subset_indices = np.random.choice(np.where(is_finite_mask)[0], subset_size, replace=False)
+    is_science_source = np.in1d(sources["source_id"][()], science_source_ids)
+
+    joint_data_mask = np.zeros(N, dtype=bool)
+    joint_data_mask[is_science_source] = True
+    #joint_data_mask *= is_finite_mask # only allow science targets with finite values
+    joint_data_mask[subset_indices] = True # add in the random subset indices.
+
+    print(f"WARNING: Using Joint data mask and only evaluating on {np.sum(joint_data_mask)} sources")
+
+    source_indices = np.where(joint_data_mask)[0]
 
     for model_name, model_config in config["models"].items():
 
@@ -129,7 +198,13 @@ if __name__ == "__main__":
             with tqdm(total=N) as pbar:
                 for i in range(num_batches):
                     si, ei = i * batch_size, (i + 1) * batch_size
-                    d[si:ei, :] = np.vstack(gp.predict(Y, xp[si:ei], return_cov=False, return_var=True)).T
+
+                    finite_in_batch = np.all(np.isfinite(xp[si:ei]), axis=1)
+                    xc = np.copy(xp[si:ei])
+                    xc[~np.isfinite(xc)] = 1.0
+
+                    d[si:ei, :] = np.vstack(gp.predict(Y, xc, return_cov=False, return_var=True)).T
+                    d[si:ei][~finite_in_batch] = np.nan
                     pbar.update(batch_size)
 
         # Ensure predictions are valid.

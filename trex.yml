@@ -54,8 +54,8 @@ models:
     bounds:
       theta: [0.5, 1]
       mu_single: [0.5, 25]
-      sigma_single: [0.025, 5]
-      sigma_multiple: [0.05, 0.5]
+      sigma_single: [0.025, 5] # lower bound is ignored; it is set by 0.125 * mu_single
+      sigma_multiple: [0.05, 1] # lower bound is ignored; it is set by sigma_single/(mu_single + sigma_single)
 
     # mixture model parameter settings
     mu_multiple_scalar: 1
@@ -95,8 +95,8 @@ models:
     bounds:
       theta: [0.5, 1]
       mu_single: [0.5, 30]
-      sigma_single: [0.025, 5]
-      sigma_multiple: [0.05, 0.5]
+      sigma_single: [0.025, 5] # lower bound is ignored; it is set by 0.125 * mu_single
+      sigma_multiple: [0.05, 1] # lower bound is ignored; it is set by sigma_single/(mu_single + sigma_single)
 
     # mixture model parameter settings
 

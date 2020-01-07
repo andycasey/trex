@@ -9,6 +9,7 @@ from scipy import optimize as op
 from hashlib import md5
 import matplotlib.pyplot as plt
 import sys
+from copy import deepcopy
 
 
 from time import time
@@ -31,8 +32,43 @@ logger.setLevel(logging.INFO)
 
 if __name__ == "__main__":
 
-    # Load in the results path.
-    results_path = sys.argv[1]
+    if sys.argv[1].lower().endswith(".yml") or sys.argv[1].lower().endswith(".yaml"):
+
+        config_path = sys.argv[1]
+
+        with open(config_path, "r") as fp:
+            config = yaml.load(fp, Loader=yaml.Loader)
+
+        pwd = os.path.dirname(config_path)
+
+        random_seed = int(config["random_seed"])
+        np.random.seed(random_seed)
+
+        logger.info(f"Config path: {config_path} with seed {random_seed}")
+
+        # Generate a unique hash.
+        config_copy = deepcopy(config)
+        for k in config_copy.pop("ignore_keywords_when_creating_hash", []):
+            if k in config_copy:
+                del config_copy[k]
+
+            else:
+                if "/" in k:
+                    k1, k2, k3 = k.split("/")
+                    del config_copy[k1][k2][k3]
+
+
+        unique_hash = md5((f"{config_copy}").encode("utf-8")).hexdigest()[:5]
+        logger.info(f"Unique hash: {unique_hash}")
+
+        # Check results path now so we don't die later.
+        results_path = os.path.join(pwd, config["results_path"].format(unique_hash=unique_hash))
+
+    else:
+        # Load in the results path.
+        results_path = sys.argv[1]
+
+
     results_dir = os.path.dirname(results_path)
 
     results = h5.File(results_path, "a")

@@ -255,8 +255,8 @@ def get_1d_initialisation_point(y, scalar, bounds=None):
     init = dict(
         theta=0.75,
         mu_single=np.median(y),
-        sigma_single=0.2,
-        sigma_multiple=0.5)
+        sigma_single=0.5 * np.median(y))
+    init.update(sigma_multiple=0.1 + init["sigma_single"]/(init["sigma_single"] + init["mu_single"]))
 
     if bounds is not None:
         for k, (lower, upper) in bounds.items():

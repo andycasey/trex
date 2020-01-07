@@ -121,12 +121,6 @@ if __name__ == "__main__":
     logger.info(f"Optimization keywords:\n{utils.repr_dict(default_opt_kwds)}")
 
     default_bounds = dict()
-    """
-    theta=[0.5, 1],
-                          mu_single=[0.5, 15],
-                          sigma_single=[0.05, 10],
-                          sigma_multiple=[0.2, 1.6])
-    """
 
     # Plotting
     figures_dir = os.path.join(results_dir, "figures")
@@ -169,20 +163,6 @@ if __name__ == "__main__":
 
                 logger.info(f"Restricting to sources with {parameter_name}: [{lower:.1f}, {upper:.1f}]")
 
-        """
-        if model_name == "ast":
-            logger.info("Applying astrometric-specific cuts to data")
-
-            ylim = 10
-            theta = np.polyfit([2, 6], [35 + 5, ylim], 1)
-
-            lim = np.polyval(theta, sources["phot_g_mean_mag"][()])
-
-            exclude = ((sources["phot_g_mean_mag"][()] >= 6) * (sources["j_ast"][()] >= ylim)) \
-                    + ((sources["phot_g_mean_mag"][()] <  6) * (sources["j_ast"][()] > lim))
-
-            data_mask *= ~exclude
-        """
 
         data_indices = np.where(data_mask)[0]
 
@@ -210,7 +190,7 @@ if __name__ == "__main__":
 
             npm_indices = np.hstack([
                 np.random.choice(np.arange(data_indices.size)[bright], num_bright, replace=False, p=pp),
-                np.random.choice(data_indices.size, M - num_bright, replace=False)
+                np.random.choice(np.arange(data_indices.size)[~bright], M - num_bright, replace=False)
             ])
 
             kwds = dict(s=5, c=Y[npm_indices])

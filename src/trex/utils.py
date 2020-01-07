@@ -130,6 +130,11 @@ def ln_prior(theta, s_mu, s_sigma, b_mu, b_sigma, bounds=None):
     or np.any(b_mu < min_mu_multiple):
         return -np.inf
     """
+    if s_sigma < 0.125 * s_mu \
+    or b_sigma < (s_sigma/(s_mu + s_sigma)):
+        return -np.inf
+
+
     if bounds is not None:
         vals = dict(theta=theta, mu_single=s_mu, sigma_single=s_sigma, mu_multiple=b_mu, sigma_multiple=b_sigma)
         for k, (lower, upper) in bounds.items():
