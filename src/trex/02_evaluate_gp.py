@@ -127,7 +127,7 @@ if __name__ == "__main__":
         is_finite_mask *= np.isfinite(sources[ln][()])
 
     # Run on a random 100,000 in  addition to the science source ids
-    subset_size = 100_000
+    subset_size = config.get("subset_size", np.sum(is_finite_mask))
     subset_indices = np.random.choice(np.where(is_finite_mask)[0], subset_size, replace=False)
     is_science_source = np.in1d(sources["source_id"][()], science_source_ids)
 

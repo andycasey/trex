@@ -4,11 +4,14 @@ model_path: src/trex/ntlnmm.stan
 results_path: results/{unique_hash}/results.h5
 
 # reproducibility
-random_seed: 0
+random_seed: 1024
 
 # multiprocessing
 multiprocessing: true
 processes: 50
+
+# run only on a subset of the data
+subset_size: 5000000
 
 # scale of data we can afford
 number_of_sources_for_gaussian_process: 1024
@@ -26,6 +29,7 @@ ignore_keywords_when_creating_hash:
   - multiprocessing
   - processes
   - suppress_stan_output
+  - subset_size
 
 # model definitions
 models:
