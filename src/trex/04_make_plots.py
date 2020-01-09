@@ -575,6 +575,10 @@ if __name__ == "__main__":
         apparent_mag = sources[f"phot_{band}_mean_mag"][()][source_indices]
         absolute_mag = sources[f"absolute_{band}_mag"][()][source_indices]
 
+        if kwargs.pop("__include_jitter", False):
+            j_ast = sources["j_ast"][()][source_indices]
+            j_rv = sources["j_rv"][()][source_indices]
+
         mask = None
         latex_labels = dict()
 
@@ -584,6 +588,8 @@ if __name__ == "__main__":
                     absolute_mag=absolute_mag,
                     ratios=ratios,
                     min_entries_per_bin=1,
+                    j_rv=j_rv,
+                    j_ast=j_ast,
                     mask=mask,
                     latex_labels=latex_labels)
         kwds.update(kwargs)
@@ -943,6 +949,7 @@ if __name__ == "__main__":
         return fig
 
     
+    '''
 
     # Plot log density of sources and their excess RV jitter.
     kwds = _get_rv_excess(sources, results)
@@ -950,69 +957,6 @@ if __name__ == "__main__":
     fig = density_rv_excess_vs_absolute_magnitude(K_est=kwds["K_est"],
                                                   absolute_mag=kwds["absolute_g_mag"])
     savefig(fig, "K-vs-MG-with-estimated-Kmax-limits")
-
-
-    '''
-    def mask_function(s, i, log_bf):
-        return ((s["parallax"][()][i]/s["parallax_error"][()][i]) >= 5) \
-             * (np.isfinite(s["parallax"][()][i])) 
-
-
-    max_log_bf = 10
-    kwds = _get_bayes_factors(sources, results, xlabel="parallax", model_name="ast",
-                              mask_function=mask_function)
-
-    kwds.update(function="count", bins=200, interpolation=None, norm=LogNorm(),
-                x=1.0/kwds["x"])
-    source_indices = kwds.pop("source_indices", None)
-    kwds.update(bins=(np.linspace(0, 3, 200), np.linspace(0, max_log_bf, 200)))
-
-
-    fig = binned_bayes_factor(**kwds)
-    ax = fig.axes[0]
-    ax.set_ylim(ax.get_ylim()[::-1])
-    #fig.axes[0].set_ylim(0, 310)
-
-    ax.axhline(8, c="#000000", zorder=10, linestyle=":", linewidth=2)
-
-
-
-    def rv_mask_function(s, i, log_bf):
-        return (s["rv_nb_transits"][()][i] > 5)
-    kwds = _get_bayes_factors(sources, results, xlabel="parallax", model_name="rv",
-                              mask_function=rv_mask_function)
-
-    kwds.update(function="count", bins=200, interpolation=None, norm=LogNorm(),
-                x=1.0/kwds["x"])
-    kwds.update(bins=(np.linspace(0, 3, 200), np.linspace(0, max_log_bf, 200)))
-    source_indices = kwds.pop("source_indices", None)
-
-    fig = binned_bayes_factor(**kwds)
-    ax = fig.axes[0]
-    ax.set_ylim(ax.get_ylim()[::-1])
-    #fig.axes[0].set_ylim(0, 310)
-
-    ax.axhline(8, c="#000000", zorder=10, linestyle=":", linewidth=2)
-
-
-
-
-    kwds = _get_bayes_factors(sources, results, xlabel="parallax", model_name=None,
-                              mask_function=lambda *args: rv_mask_function(*args) * mask_function(*args))
-
-    kwds.update(function="count", bins=200, interpolation=None, norm=LogNorm(),
-                x=1.0/kwds["x"])
-    kwds.update(bins=(np.linspace(0, 3, 200), np.linspace(0, max_log_bf, 200)))
-    source_indices = kwds.pop("source_indices", None)
-
-    fig = binned_bayes_factor(**kwds)
-    ax = fig.axes[0]
-    ax.set_ylim(ax.get_ylim()[::-1])
-    #fig.axes[0].set_ylim(0, 310)
-
-    ax.axhline(8, c="#000000", zorder=10, linestyle=":", linewidth=2)
-
-    '''
 
 
 
@@ -1116,16 +1060,6 @@ if __name__ == "__main__":
                                                       ylabel=r"$K\,/\,\mathrm{km\,s}^{-1}$ $\textrm{(this work)}$")
     savefig(fig, "scatter-excess-rv-jitter-for-known-binaries-apw")
 
-
-
-
-
-
-
-
-
-
-
     # Plot the distributions of jitter for comparable catalogs of single stars and binaries.
     kwds = _xm_literature_single_stars_and_binaries(sb9_catalog, soubiran_catalog)
     kwds.update(color=["#000000", "#BBBBBB"])
@@ -1136,14 +1070,115 @@ if __name__ == "__main__":
     savefig(fig, "hist-literature-single-stars-and-binaries")
 
 
+
+    '''
+
+
+
+
+
+
+
+
     sensible_mask = lambda k: (k["absolute_mag"] < 10) \
                             * (k["absolute_mag"] > -6) \
                             * (k["bp_rp"] > 0.25) \
-                            * (k["bp_rp"] < 4)
+                            * (k["bp_rp"] < 4) \
+                            * (k["apparent_mag"] < 14)
 
     mainsequence_mask = lambda k: sensible_mask(k) \
                                 * (k["absolute_mag"] > 2) \
                                 * (k["bp_rp"] < 2.4)
+
+
+    def plot_binned_posterior_probability_wrt_npm_parameters(model_name, function, sensible_mask, common_kwds, jitter_upper_limit, **kwargs):
+
+        fig = plt.figure(figsize=(13, 4))
+        grid = AxesGrid(fig, 111,
+                        nrows_ncols=(1, 3),
+                        axes_pad=0.75,
+                        label_mode="all",
+                        share_all=False, # of course, AxesGrid does not respect share_all like the documentation suggests...
+                        cbar_location="right",
+                        cbar_mode="edge",
+                        cbar_size="5%",
+                        cbar_pad=0.05)
+
+
+        band = dict(rv="rp").get(model_name, "g")
+
+
+        kwds = _get_binned_posterior_probability_data(sources, results, 
+                                                      model_name=model_name, band=band, __include_jitter=True)
+        for i, ax in enumerate(grid):
+
+            xkwd = ["bp_rp", "absolute_mag", "apparent_mag"][i]
+            ykwd = f"j_{model_name}"
+
+            mask = (kwds[ykwd] < jitter_upper_limit) * sensible_mask(kwds)
+            _, im = mpl_utils.plot_binned_statistic(kwds[xkwd], kwds[ykwd], kwds["ratios"],
+                                                    function="mean", ax=ax, full_output=True,
+                                                    mask=mask,
+                                                    **common_kwds)
+
+            ax.set_ylim(ax.get_ylim()[::-1])
+            ax.set_aspect(np.ptp(ax.get_xlim())/np.ptp(ax.get_ylim()))
+            ax.xaxis.set_major_locator(MaxNLocator(6))
+            ax.yaxis.set_major_locator(MaxNLocator(5))
+            ax.set_ylim(0, jitter_upper_limit)
+            ax.set_facecolor("#eeeeee")   
+            fig.tight_layout()
+
+            # i am so ashamed
+            if band == "g":
+                ylabel = r"$j_\textrm{ast}$"
+                absolute_mag_label = r"$M_\textrm{G}$"
+                apparent_mag_label = r"$\textrm{G}$"
+            else:
+                ylabel = r"$j_\textrm{rv}$"
+                absolute_mag_label = r"$M_{\textrm{G}_\textrm{RP}}$"
+                apparent_mag_label = r"$\textrm{G}_\textrm{RP}$"
+
+            xlabel = dict(bp_rp=_common_latex_labels["bp-rp"],
+                          absolute_mag=absolute_mag_label,
+                          apparent_mag=apparent_mag_label)
+
+            ax.set_xlabel(xlabel[xkwd])
+            ax.set_ylabel(ylabel)
+
+        cax = grid.cbar_axes[0]
+        cax.colorbar(im)
+        cax.yaxis.set_major_locator(MaxNLocator(5))
+        if model_name == "ast":
+            cax.set_ylabel(r"$\langle{}p(\textrm{single}|j_\textrm{ast},\textrm{G}_\textrm{RP} - \textrm{G}_\textrm{BP},M_\textrm{G},\textrm{G})\rangle$")
+        else:
+            cax.set_ylabel(r"$\langle{}p(\textrm{single}|j_\textrm{rv},\textrm{G}_\textrm{RP} - \textrm{G}_\textrm{BP},M_{\textrm{G}_\textrm{RP}},\textrm{G}_\textrm{RP})\rangle$")
+
+        return fig
+
+    function = "median"
+    common_kwds = dict(min_entries_per_bin=1,
+                       bins=100,
+                       interpolation="none",
+                       subsample=None,
+                       vmin=0, vmax=1,
+                       cmap=_common_continuous_cmap,
+                       )
+
+    fig = plot_binned_posterior_probability_wrt_npm_parameters("ast", function, sensible_mask, common_kwds, 20)
+    for ax in fig.axes[:3]:
+        ax.set_yticks([0, 5, 10, 15, 20])
+    savefig(fig, f"binned-posterior-probability-wrt-npm-parameters-ast")
+
+    fig = plot_binned_posterior_probability_wrt_npm_parameters("rv", function, sensible_mask, common_kwds, 20)
+    for ax in fig.axes[:3]:
+        ax.set_yticks([0, 5, 10, 15, 20])
+    savefig(fig, f"binned-posterior-probability-wrt-npm-parameters-rv")   
+
+
+
+
+
 
     common_kwds = dict(min_entries_per_bin=10,
                        bins=200,
@@ -1154,6 +1189,9 @@ if __name__ == "__main__":
                        )
 
     for function in ("mean", ):#"median"):
+
+     
+
 
         # Plot RV binned
         kwds = _get_binned_posterior_probability_data(sources, results, "rv", band="g")
@@ -1233,6 +1271,8 @@ if __name__ == "__main__":
 
         fig = plot_binned_posterior_probability_all_models(function, sensible_mask, common_kwds)
         savefig(fig, f"binned-posterior-probability-{function}")
+
+
 
 
 
