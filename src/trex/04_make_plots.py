@@ -27,74 +27,92 @@ _common_latex_labels = {
 
 def density_rv_excess_vs_absolute_magnitude(K_est, absolute_mag, **kwargs):
 
-    fig, ax = plt.subplots()
+    fig, ax_background = plt.subplots()
 
     x, y = (K_est, absolute_mag)
 
 
-    xp_min, xp_max = (0, 3)
+    xp_min, xp_max = (0, np.log10(2000))
+    MAGIC = 0.97
 
     num_bins = 100
 
     bins = (np.logspace(xp_min, xp_max, num_bins + 1),
             np.linspace(-8, 8, num_bins + 1))
 
+    ax_background.set_xlabel(r"$K$ $/$ $\textrm{km\,s}^{-1}$")
+    ax_background.set_ylabel(_common_latex_labels["absolute_g_mag"])
+
+    ax_background.set_ylim([-8, 8])
+    ax_background.set_xlim(MAGIC, 10**xp_max - 1) # you wouldn't believe why I have to do this even if I told you.
+
+    fig.tight_layout()
+
+    ax = fig.add_axes(ax_background.get_position(), frameon=False)
+
 
     _, im = mpl_utils.plot_binned_statistic(x, y, y,
-                                            function="count", ax=ax, 
+                                            function="count", ax=ax_background, 
                                             full_output=True, interpolation="none",
                                             bins=bins,
                                             norm=LogNorm(),
                                             cmap="Greys",
                                             )
-    ax.set_ylim(ax.get_ylim()[::-1])
+    #ax_background.set_ylim(ax_background.get_ylim()[::-1])
 
-    linear_ticks = np.linspace(10**xp_min, 10**xp_max, xp_max - xp_min + 1)
-    ax.set_xticks(linear_ticks)
-    #ax.set_xticks(np.linspace(10**xp_min, 10**xp_max, 10 * (xp_max - xp_min) + 1), minor=True)
+    # Here comes the smoke and mirrors.
+    ax.set_xlim(bins[0][0], bins[0][-1])
+    ax.set_ylim(bins[1][0], bins[1][-1])
+    ax.xaxis.set_major_locator(MaxNLocator(5))
+    ax.set_xscale("log")
 
-
-    approx_logg = lambda G: 5/16 * G + 2.5
-    
-    v = np.array(ax.get_ylim())
-
-    # I have my reservations about this approximation. I think there is a sqrt(2) factor bug in Badenes' plot.
-    mass = 1.0 
-    RV_max = 0.87 * (constants.G * mass * u.solMass * (10**(approx_logg(v)) * u.m/u.s**2))**0.25
-    K_max = 0.5 * RV_max.to(u.km/u.s)
-
-    print(K_max)
-    #ax.plot(10**(np.log10(K_max.value) + 1), v, c="tab:green", lw=2)
+    ax_background.set_xlabel(None)
+    ax_background.set_ylabel(None)
+    ax_background.set_xticklabels([])
+    ax_background.set_yticklabels([])
+    ax_background.xaxis.set_tick_params(width=0)
+    ax_background.yaxis.set_tick_params(width=0)
 
 
-    """
-    ax_right = ax.twinx()
-    ax_right.set_ylabel(r"$\textrm{approximate}$ $\log{g}$")
-    ax_right.set_ylim(0, 5)
-    ax_right.plot(RV_max, approx_logg(v), c="tab:blue")
-    """
+    # I have my reservations about this approximation.
+    # I think that Badenes took \log{g} to be exponential-based instead of base-10.
+    base = 10
 
-    ax.set_xticklabels([r"$10^{0}$".format(_) for _ in range(xp_min, xp_max + 1)])
-    #ax.set_xscale("log")
+    a, b = (5.5/16, 2.25)
+    approx_logg = lambda G: a * np.array(G) + b
+    approx_MG = lambda logg: (1/a) * (logg - b)
 
-    # TODO: create a mirrored axis or something?
-    # TODO: this is all fucked up.
-    # TODO: basically we want to have a log-x scale for the bins (which works)
-    #       but then we can't tell the axis that the scaling is log otherwise it blows up
+    print(approx_logg(ax_background.get_ylim()))
 
-    # TODO: alter Equation 3 from arxiv:1711.00660 and show in figure.
+    lines = [
+        (0.5, [-10, 10], dict(c="tab:green"), None, r"$0.5$ $M_\odot$ $\textrm{RLOF}$"),
+        (1.0, [approx_MG(0), 10], dict(c="tab:red"), r"$\,\,\,\textrm{TRGB}$", r"$1.0$ $M_\odot$ $\textrm{RLOF}$"),
+        (2.0, [approx_MG(1.25), 10], dict(c="tab:blue"), r"$\,\,\,\textrm{TRGB}$", r"$2.0$ $M_\odot$ $\textrm{RLOF}$"),
+    ]
 
-    #ticks = np.unique(np.log10(bins[0]).astype(int))[1:]
-    #ax.set_xticks(10**ticks)
-    #ax.set_xticklabels([r"$10^{{{0}}}$".format(_) for _ in ticks])
+    ylim = ax.get_ylim()
 
-    # TODO, this is all fucked up
-    print("this is not for publication")
+
+    for mass, v, plot_kwds, text_label, label in lines:    
+        RV_max = 0.87 * (constants.G * mass * u.solMass * (base**(approx_logg(v)) * u.m/u.s**2))**0.25
+        K_max = 0.5 * RV_max.to(u.km/u.s)
+
+        ax.plot(K_max, v, "-", label=label, **plot_kwds)
+
+        if v[0] > ylim[0]:
+            ax.scatter([K_max[0].value], [v[0]], s=50, edgecolor="k", lw=1, zorder=100, **plot_kwds)
+            ax.text(K_max[0].value, v[0], text_label, 
+                    verticalalignment="center")
 
     ax.set_xlabel(r"$K$ $/$ $\textrm{km\,s}^{-1}$")
     ax.set_ylabel(_common_latex_labels["absolute_g_mag"])
 
-    raise a
+    ax.set_ylim(ylim)
+    ax.set_xlim(MAGIC, 10**xp_max - 1) # you wouldn't believe why I have to do this even if I told you.
+    plt.show()
+
+    ax.legend(loc="lower right", frameon=False)
+
     return fig
 
 
@@ -931,7 +949,7 @@ if __name__ == "__main__":
 
     fig = density_rv_excess_vs_absolute_magnitude(K_est=kwds["K_est"],
                                                   absolute_mag=kwds["absolute_g_mag"])
-    raise a
+    savefig(fig, "K-vs-MG-with-estimated-Kmax-limits")
 
 
     '''
