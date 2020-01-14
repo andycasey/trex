@@ -10,6 +10,7 @@ from astropy import (coordinates as coord, units as u)
 from astropy.coordinates.matrix_utilities import (matrix_product, rotation_matrix)
 from tqdm import tqdm
 from scipy import (optimize as op)
+from scipy.stats import binned_statistic_2d
 from astropy import constants
 
 from matplotlib.colors import LogNorm
@@ -31,31 +32,70 @@ plt.style.use(mpl_style)
 np.random.seed(0)
 
 
-def worker(j, k, **kwargs):
-    ruwe, _ = approximate_ruwe(**kwargs)
+def worker(j, k, other_args, **kwds):
+    ruwe, _ = approximate_ruwe(*other_args, **kwds)
     #aen, _ = astrometric_excess_noise(**kw)
     return (j, k, ruwe, np.nan)
 
-
-population = "hot jupiters"
 
 
 N = 10_000 # simulations per distance trial
 M = 1 # time draws per simulation
 
+# Gaia Data Release:
+# 2: Gaia DR 2
+# 3: Gaia EDR 3
+# 3.1: Gaia DR 3
+gaia_data_release = 2
+#population = "black hole companions"
+population = "hot jupiters"
+
+# Let us assume that anything with RUWE above this threshold is a binary
+ruwe_binarity_threshold = 1.5
+
 populations = [
     "hot jupiters",
-    "main-sequence binaries"
+    "main-sequence binaries",
+    "black hole companions"
 ]
 
 assert population in populations
 
 
-# The number of astrometric matched observations in DR2 ranges from 5 to 136.
-dr2_mean_astrometric_matched_observations = 28 # number of observations per source
-#dr2_draw_astrometric_matched_observations = lambda _=None: int(np.clip(np.random.normal(28, 11), 5, 128))
 
-if population == "main-sequence binaries":
+
+def get_gaia_observing_span(data_release):
+
+    obs_start = Time('2014-07-25T10:30') # From https://www.cosmos.esa.int/web/gaia/dr2
+
+    if data_release == 2:
+        # From https://www.cosmos.esa.int/web/gaia/dr2
+        obs_end = Time('2016-05-23T11:35')
+        median_astrometric_n_good_obs_al = 225
+
+    elif data_release == 3: # EDR 3
+        obs_end = Time('2017-05-25T10:30') # '34 months of data'
+        dr2_obs_start, dr2_obs_end, dr2_median_astrometric_n_good_obs_al = get_gaia_observing_span(2)
+
+        factor = (obs_end - obs_start) / (dr2_obs_end - dr2_obs_start)
+        median_astrometric_n_good_obs_al = int(factor * dr2_median_astrometric_n_good_obs_al)
+
+    elif data_release == 3.1:
+        obs_end = Time('2018-05-25T10:30') # guess
+        dr2_obs_start, dr2_obs_end, dr2_median_astrometric_n_good_obs_al = get_gaia_observing_span(2)
+
+        factor = (obs_end - obs_start) / (dr2_obs_end - dr2_obs_start)
+        median_astrometric_n_good_obs_al = int(factor * dr2_median_astrometric_n_good_obs_al)
+
+    else:
+        raise Exception("Ask Anthony Brown!")
+
+
+    return (obs_start, obs_end, median_astrometric_n_good_obs_al)
+
+
+
+def draw_main_sequence_binary_population(N):
     # We are using the same Ps, qs, etc at each distance trial.
     P = np.random.lognormal(5.03, 2.28, N) * u.day # Raghavan et al. (2010)
     q = np.random.uniform(0.1, 1, N)
@@ -69,321 +109,254 @@ if population == "main-sequence binaries":
     f_1 = M_1.value**3.5
     f_2 = M_2.value**3.5
 
+    args = (P, M_1, M_2, f_1, f_2, i)
     ylabel = r"$\textrm{detection efficiency of main-sequence binary systems}$"
 
-elif population == "hot jupiters":
+    return (args, ylabel)
+
+
+def grid_main_sequence_binary_population(N_per_axis, N_simulation):
+
+    P = np.logspace(1, 7, N_per_axis)
+    q = np.linspace(0, 1, N_per_axis)
+
+    cos_i = np.linspace(0, 1, N_simulation)
+    i = np.arccos(cos_i)
+    M_1 = salpeter_imf(N_simulation, 2.35, 0.1, 100)
+    
+    params = np.array(list(itertools.product(P, q, M_1, i)))
+
+    P, q, M_1, i = params.T
+    M_2 = q * M_1
+
+    f_1 = M_1**3.5
+    f_2 = M_2**3.5
+
+    P = P << u.day
+    M_1 = M_1 << u.solMass
+    M_2 = M_2 << u.solMass
+    i = i << u.rad
+
+    args = (P, M_1, M_2, f_1, f_2, i)
+    return (args, None)
+
+
+
+def draw_hot_jupiter_host_population(N):
+
     M_1 = salpeter_imf(N, 2.35, 0.1, 100) * u.solMass
     f_1 = 1.0 * np.ones(N)
 
     M_2 = 10* np.ones(N) * constants.M_jup.to(u.solMass)
     f_2 = 0.0 * np.ones(N)
 
+    q = M_2 / M_1
+
     cos_i = np.random.uniform(0, 1, N)
     i = np.arccos(cos_i) * u.rad
 
     P = np.random.uniform(5, 10, N) * u.day
 
+    args = (P, M_1, M_2, f_1, f_2, i)
     ylabel = r"$\textrm{detection efficiency of hot jupiters}$"
+
+    return (args, ylabel)
+
+
+def draw_black_hole_companion_population(N):
+
+    P = 30 * np.ones(N) * u.day
+    M_1 = salpeter_imf(N, 2.35, 0.1, 100) * u.solMass
+    f_1 = 1.0 * np.ones(N)
+
+    M_2 = np.random.uniform(3, 5, N) * u.solMass
+    f_2 = 0.0 * np.ones(N)
+
+    q = M_2 / M_1
+
+    cos_i = np.random.uniform(0, 1, N)
+    i = np.arccos(cos_i) * u.rad
+
+    args = (P, M_1, M_2, f_1, f_2, i)
+    ylabel = r"$\textrm{detection efficiency of black hole companions}$"    
+
+    return (args, ylabel)
+
 
 
 # Assume that we observe each system at a uniformly random time.
-# From https://www.cosmos.esa.int/web/gaia/dr2
-obs_start, dr2_obs_end = (Time('2014-07-25T10:30'), Time('2016-05-23T11:35'))  #DR 2
+obs_start, obs_end, median_astrometric_n_good_obs_al = get_gaia_observing_span(gaia_data_release)
+t = obs_start + np.random.uniform(0, 1, median_astrometric_n_good_obs_al) * (obs_end - obs_start)
+distances = np.linspace(1, 5000, 10000) * u.pc
 
-# Let us assume that anything with RUWE above this threshold is a binary
-ruwe_binarity_threshold = 3
+def simulate_detection_efficiency(P, M_1, M_2, f1, f2, i, t, distances, **kwargs):
 
-t = obs_start + np.random.uniform(0, 1, dr2_mean_astrometric_matched_observations) * (dr2_obs_end - obs_start)
+    processes = kwargs.pop("processes", 50)
+    with mp.Pool(processes=processes) as pool:
 
-fiducial_distance = 1 * u.pc
-fiducial_ruwe_dr2 = np.zeros((N, M), dtype=float)
-for j in tqdm(range(N)):
+        results = []
 
-    args = (P[j], M_1[j], M_2[j], fiducial_distance)
-    kwds = dict(f1=f_1[j], f2=f_2[j], i=i[j])
+        N = P.size
+        M = 1 # TODO
 
-    for k in range(M):
-        fiducial_ruwe_dr2[j, k], meta = approximate_ruwe(t, *args, **kwds)
+        fiducial_distance = 1 * u.pc
+        fiducial_ruwe = np.zeros((N, M), dtype=float)
 
+        kwds = dict()
+        kwds.update(kwargs)
 
-distances = np.linspace(1, 1000, 10000) * u.pc
-D = distances.size
+        #for j in tqdm(range(N)):
+        for j, (P_, M_1_, M_2_, f1_, f2_, i_) in tqdm(enumerate(zip(*(P, M_1, M_2, f1, f2, i))), desc="Pooling"):
+            #args = (t, P[j], M_1[j], M_2[j], fiducial_distance)
+            #kwds.update(f1=f1[j], f2=f2[j], i=i[j])
+            args = (t, P_, M_1_, M_2_, fiducial_distance)
+            kwds.update(f1=f1_, f2=f2_, i=i_)
 
-# Just store a detection completeness at each distance.
-detection_efficiency_dr2 = np.zeros(D, dtype=float)
-for j, distance in tqdm(enumerate(distances), total=D):
-    ruwe_dr2 = fiducial_ruwe_dr2 * (fiducial_distance / distance)
-    detection_efficiency_dr2[j] = np.sum(ruwe_dr2 >= ruwe_binarity_threshold)/ruwe_dr2.size
-    
+            for k in range(M):
+                results.append(pool.apply_async(worker, (j, k, args), kwds))
 
-fig, ax = plt.subplots()
-ax.plot(distances, detection_efficiency_dr2, c="k", ms=0)
-#ax.plot(distances, detection_efficiency_edr3, lw=1, linestyle=":", c="#666666", ms=0, zorder=-1)
-ax.set_xscale("log")
-ax.set_xlabel(r"$\textrm{distance}$ $/$ $\textrm{pc}$")
-ax.set_ylabel(ylabel)
-
-fig.tight_layout()
-
-raise a
-
-
-
-# Gaia DR2 3425096028968232832
-ra, dec = (92.95448746, 22.82574178)
-gaia_ruwe = 1.45116
-
-
-
-
-
-# From the paper (their preferred values on distance, etc).
-distance = 4.230 * u.kpc
-eccentricity = 0.03 # pm 0.01
-period = 78.9 * u.day # \pm 0.3 * u.day
-m1 = 68 * u.solMass # (+11, -13) from their paper (abstract)
-m2 = 8.2 * u.solMass # (+0.9, -1.2) from their paper
-f1, f2 = (0, 1)
-i = 15 * u.deg # bottom right of page 2 of their paper
-
-omega = 0 * u.deg # doesn't matter. thanks, central limit thereom!
-radial_velocity = 0 * u.km/u.s # doesn't matter here
-
-# From Gaia, unless otherwise defined:
-origin_kwds = dict(ra=92.95448 * u.deg,
-                   dec=22.82574 * u.deg,
-                   distance=distance,
-                   pm_ra_cosdec=-0.0672 * u.mas/u.yr,
-                   pm_dec=-1.88867* u.mas/u.yr,
-                   radial_velocity=radial_velocity)
-
-origin = coord.ICRS(**origin_kwds)
-kwds = dict(i=i, omega=omega, origin=origin)
-
-kwds.update(P=period,
-            m1=m1,
-            f1=f1,
-            m2=m2,
-            f2=f2,
-            distance=origin.distance) # ignored by astrometric_excess_noise but needed for approximating functions
-
-
-
-
-
-# From https://www.cosmos.esa.int/web/gaia/dr2
-obs_start = Time('2014-07-25T10:30')
-obs_end = Time('2016-05-23T11:35')
-observing_span = obs_end - obs_start
-
-
-#gost = Table.read("gost_21.3.1_652094_2019-12-05-02-26-18.csv")
-#t = Time(gost["ObservationTimeAtGaia[UTC]"])
-
-
-
-
-# Assume observed at uniformly random times.
-t = obs_start + np.linspace(0, 1, dr2_mean_astrometric_matched_observations) * (obs_end - obs_start)
-
-kwds.update(t=t)
-#kwds.update(pm_ra_cosdec=0*u.mas/u.yr, pm_dec=0*u.mas/u.yr)
-#simulate_orbit(**kwds)
-
-
-
-
-
-lb1_approximate_ruwe, meta_ruwe = approximate_ruwe(**kwds)
-lb1_aen, meta_aen = astrometric_excess_noise(**kwds)
-
-print(f"Reported RUWE by Gaia DR2 = {gaia_ruwe:.2f}")
-print(f"Approximated RUWE = {lb1_approximate_ruwe:.2f}")
-print(f"Estimated AEN = {lb1_aen:.2f}")
-
-
-"""
-Do Approximate Bayesian Computation.
-
-Free parameters:
-- inclination angle (0, 90)
-- m1 (1, 70)
-- m2 (0.7, 70)
-- distance (1, 5)
-"""
-
-processes = 50
-#n_repeats = 1
-
-"""
-# Based on numbers from the paper.
-
-cost_factor = 1
-i_bins = np.linspace(0, 90, cost_factor * 30) # u.deg
-m1_bins = np.linspace(1, 70, cost_factor * 70) # u.solMass
-m2_bins = np.linspace(1, 15, cost_factor * 30) # u.solMass
-distance_bins = np.linspace(2, 5, cost_factor * 30) # u.kpc
-"""
-
-SET_DISTANCE = True
-if SET_DISTANCE:
-
-    np.random.seed(42)
-
-
-    sig = 3
-
-    n_bins = 20
-    n_draws = 1
-
-    m_bh = (5.37, 1.58)
-    m_comp = (0.77, 0.14)
-    i_bins = np.linspace(0, 90, n_bins)
-    m1_bins = np.linspace(m_bh[0] - sig * m_bh[1], m_bh[0] + sig * m_bh[1], n_bins)
-    m2_bins = np.linspace(m_comp[0] - sig * m_comp[1], m_comp[0] + sig * m_comp[1], n_bins)
-
-    distance_draws = np.random.normal(2.14, 0.35, n_draws)
-    distance_draws = [1.6]
-
-    pool = mp.Pool(processes=processes)
-
-    results = []
-
-    grid = np.array(list(itertools.product(i_bins, m1_bins, m2_bins)))
-
-    grid_ruwe = np.zeros((grid.shape[0], n_draws))
-    grid_aen = np.zeros((grid.shape[0], n_draws))
-
-
-    for j, (i, m1, m2) in enumerate(tqdm(grid, desc="Hunting")):
-
-        for k, distance in enumerate(distance_draws):
-
-            okw = origin_kwds.copy()
-            okw.update(distance=distance << u.kpc)
-
-            origin = coord.ICRS(**okw)
-            kwds.update(i=i << u.deg,
-                        m1=m1 << u.solMass,
-                        m2=m2 << u.solMass,
-                        origin=origin,
-                        distance=origin.distance)
-
-            if processes == 1:
-                grid_ruwe[j, k], _ = approximate_ruwe(**kwds)
-                grid_aen[j, k], _ = astrometric_excess_noise(**kwds)
-
-            else:
-                results.append(pool.apply_async(worker, (j, k), kwds))
-
-
-    if processes > 1:
 
         for each in tqdm(results, desc="Collecting"):
             j, k, ruwe, aen = each.get(timeout=1)
-            grid_ruwe[j, k] = ruwe
-            grid_aen[j, k] = aen
+            fiducial_ruwe[j, k] = ruwe
+
+        D = distances.size
+
+        # Just store a detection completeness at each distance.
+        detection_efficiency = np.zeros(D, dtype=float)
+        for j, distance in tqdm(enumerate(distances), total=D):
+            ruwe = fiducial_ruwe * (fiducial_distance / distance)
+            detection_efficiency[j] = np.sum(ruwe >= ruwe_binarity_threshold)/ruwe.size
+    
 
 
-        pool.close()
-        pool.join()
+    return (detection_efficiency, fiducial_ruwe, fiducial_distance)
 
 
-    #grid = grid[:, :-1]
+population_functions = {
+    "main_sequence": draw_main_sequence_binary_population,
+    "black_hole": draw_black_hole_companion_population,
+    "hot_jupiter": draw_hot_jupiter_host_population
+}
 
-    # Take mean from repeats?
-    # TODO]
-    target_ruwe = gaia_ruwe
-    ruwe_tolerance = 0.05
-    mask = np.abs(target_ruwe - grid_ruwe) < ruwe_tolerance
+for desc, population_function in population_functions.items():
+    print(f"Running {desc} with {population_function}")
 
-    X = grid[mask[:, 0]]
+    args, ylabel = population_function(N)
+
+    detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
+
+    # optimistic modelling and EDR3
+    edr3_obs_start, edr3_obs_end, edr3_median_astrometric_n_good_obs_al = get_gaia_observing_span(3)
+    edr3_t = edr3_obs_start + np.random.uniform(0, 1, edr3_median_astrometric_n_good_obs_al) * (edr3_obs_end - edr3_obs_start)
+    edr3_detection_efficiency, *_ = simulate_detection_efficiency(*args, edr3_t, distances,
+                                                                  intrinsic_ra_error=0.06,
+                                                                  intrinsic_dec_error=0.06)
 
 
-    fig = corner(X, labels=(r"$i$", r"$M_1$", r"$M_2$"),
-                 range=list(zip(np.min(grid, axis=0), np.max(grid, axis=0))))
-    #fig.savefig("abc.pdf", dpi=300)
-    fig.savefig("fixed_distance_1.6.png", dpi=300)
+    fig, ax = plt.subplots()
+    ax.plot(distances, detection_efficiency, c="k", ms=0)
+    ax.plot(distances, edr3_detection_efficiency, c="#666666", linestyle=":", ms=0, zorder=-1)
+    ax.set_xscale("log")
+    ax.set_xlabel(r"$\textrm{distance}$ $/$ $\textrm{pc}$")
+    ax.set_ylabel(ylabel)
+
+    fig.tight_layout()
+
+    fig.savefig(f"detection_efficiency_{desc}.pdf", dpi=300)
+
+
+    # 
+    """
+    args, ylabel = draw_main_sequence_binary_population(1_000_000)
+    P, M_1, M_2, f_1, f_2, i = args
+
+    detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
+
+    e = 0
+
+    q = M_2/M_1
+    a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
+    K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2))).to(u.km/u.s)
+
+    # Bin it into K, q and do contours.
+    bins = (
+        np.logspace(1, 6, 30),
+        np.linspace(0, 1, 30)
+    )
+
+    ruwe = fiducial_ruwe.flatten() / 100.0
+
+    B = (ruwe >= ruwe_binarity_threshold).astype(float)
+
+    binned_statistic_args = (P.to(u.day).value, q.value, B)
+    binned_statistic_kwds = dict(bins=bins)
+
+
+    sum_, xedges, yedges, binnumber = binned_statistic_2d(*binned_statistic_args, 
+                                                           statistic="sum",
+                                                           **binned_statistic_kwds)
+
+    count, xedges, yedges, binnumber = binned_statistic_2d(*binned_statistic_args, 
+                                                           statistic="count",
+                                                           **binned_statistic_kwds)
+    
+    H = sum_/count
+
+
+    extent = (bins[0][0], bins[0][-1], bins[1][-1], bins[1][0])
+
+    fig, ax = plt.subplots()
+    ax.imshow(H.T, extent=extent)
+    ax.set_xscale("log")
+    ax.set_ylim(ax.get_ylim()[::-1])
+
+    X1, Y = np.meshgrid(xedges, yedges)
+    X = np.tile(np.linspace(xedges[0], xedges[-1], 30), 30).reshape((30, 30))
+
+    levels = np.linspace(0, 1, 5)
+    fig, ax = plt.subplots()
+    contour = ax.contour(X[:-1, :-1], Y[:-1, :-1], H.T[:, ::-1], levels)
+    ax.set_xscale("log")
+    ax.clabel(contour, inline=1, fontsize=10)
+    """
+    N_per_axis = 30
+    N_simulation = 50
+    args, _ = grid_main_sequence_binary_population(N_per_axis, N_simulation)
+
+    P, M_1, M_2, f_1, f_2, i = args
+
+    detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
+
+    unique_P = np.unique(P.to(u.day).value)
+    unique_q = np.unique(q.value)
+
+    bins = (unique_P, unique_q)
+
+    H = (ruwe >= ruwe_binarity_threshold).astype(float)
+
+    binned_statistic_args = (unique_P, unique_q, H)
+    binned_statistic_kwds = dict(bins=bins)
+
+    sum_, xe, ye, bin_number = binned_statistic_2d(*binned_statistic_args,
+                                                   statistic="sum",
+                                                   **binned_statistic_kwds)
+
+    count_, xe, ye, bin_number = binned_statistic_2d(*binned_statistic_args,
+                                                     statistic="count",
+                                                     **binned_statistic_kwds)
+
+    Q = sum_/count_
+    extent = (bins[0][0], bins[0][-1], bins[1][-1], bins[1][0])
+
+    fig, ax = plt.subplots()
+    ax.imshow(Q.T, extent=extent)
+    ax.set_xscale("log")
+    
+
 
     raise a
 
-
-else:
-
-    sig = 3
-
-    n_bins = 20
-
-    m_bh = (5.37, 1.58)
-    m_comp = (0.77, 0.14)
-    i_bins = np.linspace(0, 90, n_bins)
-    m1_bins = np.linspace(1, 10, n_bins)
-    m2_bins = np.linspace(0.5, 1.5, n_bins)
-    #m2_bins = np.linspace(m_comp[0] - sig * m_comp[1], m_comp[0] + sig * m_comp[1], n_bins)
-    distance_bins = np.linspace(1.6, 2.5, n_bins)
-
-    pool = mp.Pool(processes=processes)
-
-    results = []
-
-    grid = np.array(list(itertools.product(i_bins, m1_bins, m2_bins, distance_bins)))
-
-    grid_ruwe = np.zeros((grid.shape[0], 1))
-    grid_aen = np.zeros((grid.shape[0], 1))
-
-
-    for j, (i, m1, m2, distance) in enumerate(tqdm(grid, desc="Hunting")):
-
-        okw = origin_kwds.copy()
-        okw.update(distance=distance << u.kpc)
-
-        origin = coord.ICRS(**okw)
-        kwds.update(i=i << u.deg,
-                    m1=m1 << u.solMass,
-                    m2=m2 << u.solMass,
-                    origin=origin,
-                    distance=origin.distance)
-
-        if processes == 1:
-            grid_ruwe[j], _ = approximate_ruwe(**kwds)
-            grid_aen[j], _ = astrometric_excess_noise(**kwds)
-
-        else:
-            results.append(pool.apply_async(worker, (j, 0, ), kwds))
-
-
-    if processes > 1:
-
-        for each in tqdm(results, desc="Collecting"):
-            j, k, ruwe, aen = each.get(timeout=1)
-            grid_ruwe[j, k] = ruwe
-            grid_aen[j, k] = aen
-
-
-        pool.close()
-        pool.join()
-
-
-    grid_ruwe = grid_ruwe[:, 0]
-    grid_aen = grid_aen[:, 0]
-
-    #grid = grid[:, :-1]
-
-    # Take mean from repeats?
-    # TODO:
-    target_ruwe = gaia_ruwe
-    ruwe_tolerance = 0.05
-    mask = np.abs(target_ruwe - grid_ruwe) < ruwe_tolerance
-
-    X = grid[mask]
-
-
-    fig = corner(X, labels=(r"$i$", r"$M_{BH}$", r"$M_{comp}$", r"$d$"),
-                 range=list(zip(np.min(grid, axis=0), np.max(grid, axis=0))))
-    #fig.savefig("abc.pdf", dpi=300)
     
-
-raise a
-
-
+    raise a
 

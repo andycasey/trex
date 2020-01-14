@@ -14,8 +14,8 @@ import twobody
 
 # Lindegren et al. 2018, Figure 9 and accompanying text in end of Section 2.2
 
-__intrinsic_ra_error = 0.3
-__intrinsic_dec_error = 0.3
+__intrinsic_ra_error = 0.3 # / mas, per CCD observation
+__intrinsic_dec_error = 0.3 # / mas, per CCD observation
 
 def salpeter_imf(N, alpha, M_min, M_max):
     log_M_limits = np.log([M_min, M_max])
@@ -134,8 +134,10 @@ def approximate_ruwe(t, P, m1, m2, distance, f1=None, f2=None, t0=None,
     rms_in_mas = (rms_in_au * u.au / distance).to(u.mas, equivalencies=u.dimensionless_angles())
 
 
-
-    chi2 = N * rms_in_mas.to(u.mas).value**2 / (__intrinsic_ra_error**2 + __intrinsic_dec_error**2)
+    intrinsic_ra_error = kwargs.get("intrinsic_ra_error", __intrinsic_ra_error)
+    intrinsic_dec_error = kwargs.get("intrinsic_dec_error", __intrinsic_dec_error)
+    
+    chi2 = N * rms_in_mas.to(u.mas).value**2 / (intrinsic_ra_error**2 + intrinsic_dec_error**2)
 
     # sqrt(2) from approximating rms in one dimension instead of 2
     approx_ruwe = np.sqrt(2) * np.sqrt(chi2/(N - 2))
