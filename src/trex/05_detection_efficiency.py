@@ -115,13 +115,15 @@ def draw_main_sequence_binary_population(N):
     return (args, ylabel)
 
 
-def grid_main_sequence_binary_population(N_per_axis, N_simulation):
+def Pq_grid_main_sequence_binary_population(N_per_axis, N_simulation):
 
     P = np.logspace(1, 7, N_per_axis)
-    q = np.linspace(0, 1, N_per_axis)
+    q = np.linspace(0.1, 1, N_per_axis)
 
     cos_i = np.linspace(0, 1, N_simulation)
     i = np.arccos(cos_i)
+    #cos_i = np.array([1.0])
+    #i = np.arccos(cos_i)
     M_1 = salpeter_imf(N_simulation, 2.35, 0.1, 100)
     
     params = np.array(list(itertools.product(P, q, M_1, i)))
@@ -139,6 +141,28 @@ def grid_main_sequence_binary_population(N_per_axis, N_simulation):
 
     args = (P, M_1, M_2, f_1, f_2, i)
     return (args, None)
+
+
+def PK_grid_main_sequence_binary_population(N_per_axis, N_simulation, K_max=300 * u.km/u.s):
+    # TODO: set K_max by RLOF limit
+
+    P = np.logspace(1, 7, N_per_axis) << u.day
+    K = np.linspace(0.5, K_max.to(u.km/u.s).value, N_per_axis) << u.km/u.s
+
+    cos_i = np.linspace(0, 1, N_simulation)
+    i = np.arccos(cos_i) << u.rad
+
+    q = np.linspace(0.1, 1, N_simulation)
+    e = 0
+
+    scalar = ((1 - e**2)**(3/2))/(2 * np.pi * constants.G * (1 + q) * np.sin(i)**3)
+
+    v = P * K**3
+    M_1 = np.array([(v * s).to(u.solMass).value for s in scalar])
+
+    raise a
+
+
 
 
 
@@ -233,6 +257,191 @@ def simulate_detection_efficiency(P, M_1, M_2, f1, f2, i, t, distances, **kwargs
     return (detection_efficiency, fiducial_ruwe, fiducial_distance)
 
 
+
+N_per_axis = 50
+N_simulation = 100
+args, _ = Pq_grid_main_sequence_binary_population(N_per_axis, N_simulation)
+
+P, M_1, M_2, f_1, f_2, i = args
+
+detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
+
+q = M_2/M_1
+
+unique_P = np.unique(P.to(u.day).value)
+unique_q = np.unique(q.value)
+
+bins = (unique_P, unique_q)
+
+at_distance = 1000 * u.pc
+ruwe = fiducial_ruwe * (fiducial_distance / at_distance)
+
+H = (ruwe >= ruwe_binarity_threshold).astype(float).flatten()
+
+
+def _get_bins(x, y, x_log, y_log, x_lim=None, y_lim=None, N_per_axis=None):
+    
+    N_per_axis = N_per_axis or np.min([np.unique(xy).size for xy in (x, y)])
+    xr = (x.min(), x.max())
+    yr = (y.min(), y.max())
+    if x_lim is not None:
+        xr = np.clip(xr, *np.sort(x_lim))
+    if y_lim is not None:
+        yr = np.clip(yr, *np.sort(y_lim))
+
+    if x_log:
+        x_space_args = np.log10(xr)
+        x_space_func = np.logspace
+    else:
+        x_space_args = xr
+        x_space_func = np.linspace
+
+    if y_log:
+        y_space_args = np.log10(yr)
+        y_space_func = np.logspace
+    else:
+        y_space_args = yr
+        y_space_func = np.linspace
+
+    x_bins = x_space_func(*x_space_args, 1 + N_per_axis)
+    y_bins = y_space_func(*y_space_args, 1 + N_per_axis)
+
+    return (x_bins, y_bins)
+
+
+
+def plot_mesh(x, y, z, statistic="mean", x_log=False, y_log=False, **kwargs):
+
+    x_lim, y_lim = [kwargs.pop(f"{_}_lim", None) for _ in "xy"]
+    x_label, y_label = [kwargs.pop(f"{_}_label", None) for _ in "xy"]
+    
+    N_per_axis = kwargs.pop("N_per_axis", np.min([np.unique(xy).size for xy in (x, y)]))
+
+    bin_args = (x, y, x_log, y_log, x_lim, y_lim)
+    bins = _get_bins(*bin_args, N_per_axis)
+
+    counts, xe, ye, bin_number = binned_statistic_2d(x, y, z, statistic=statistic, bins=bins)
+
+    kwds = dict()
+    kwds.update(kwargs)
+
+    fig, ax = plt.subplots()
+    pcm = ax.pcolormesh(xe, ye, counts.T, **kwds)
+    cbar = plt.colorbar(pcm)
+    if x_log:
+        ax.set_xscale("log")
+    if y_log:
+        ax.set_yscale("log")
+
+    ax.set_xlim(x_lim)
+    ax.set_ylim(y_lim)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+
+    fig.tight_layout()
+    return fig
+
+
+
+
+def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, y_log=False, **kwargs):
+
+    # Pop out kwargs
+    N_per_axis = kwargs.pop("N_per_axis", np.min([np.unique(xy).size for xy in (x, y)]))
+    x_lim = kwargs.pop("x_lim", None)
+    y_lim = kwargs.pop("y_lim", None)
+    x_label = kwargs.pop("x_label", None)
+    y_label = kwargs.pop("y_label", None)
+
+    bin_args = (x, y, x_log, y_log, x_lim, y_lim)
+    x_bins, y_bins = _get_bins(*bin_args, N_per_axis)
+    x_unique, y_unique = _get_bins(*bin_args, N_per_axis - 1)
+
+    args = (x, y, detection_efficiency)
+    kwds = dict(bins=(x_bins, y_bins))
+
+    numer, xe, ye, bin_number = binned_statistic_2d(*args, statistic="sum", **kwds)
+    denom, xe, ye, bin_number = binned_statistic_2d(*args, statistic="count", **kwds)
+
+    Q = numer/denom
+
+    extent = (xe[0], xe[-1], ye[0], ye[-1])
+    
+
+    fig, ax = plt.subplots()
+
+    set_kwds = dict()
+    if x_log: set_kwds.update(xscale="log")
+    if y_log: set_kwds.update(yscale="log")
+    ax.set(**set_kwds)
+
+    twin_ax = ax.twinx()
+    contour_kwds = dict(levels=[0, 0.25, 0.5, 0.75, 0.99, 1.0])
+    contour_kwds.update(kwargs)
+    contour = twin_ax.contour(x_unique, y_unique, Q.T, **contour_kwds)
+    ax.clabel(contour, inline=1, fontsize=10)
+
+    ax.set_xlim(twin_ax.get_xlim())
+    ax.set_ylim(twin_ax.get_ylim())
+
+    for _ in (ax, twin_ax):
+        _.set_xlim(x_lim)
+        _.set_ylim(y_lim)
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+
+    twin_ax.set_yticklabels([])
+    twin_ax.yaxis.set_tick_params(width=0)
+
+    fig.tight_layout()
+
+    return fig
+
+
+P_label = r"$P$ $/$ $\textrm{days}^{-1}$"
+K_label = r"$K$ $/$ $\textrm{km\,s}^{-1}$"
+q_label = r"$q$"
+
+Pq_plot_kwds = dict(x_log=True, y_log=False,
+                    x_lim=None, y_lim=(0, 1),
+                    x_label=P_label, y_label=q_label)
+
+fig = plot_mesh(P.to(u.day).value, q.value, ruwe.value.flatten(),
+                **Pq_plot_kwds)
+
+
+fig = plot_detection_efficiency_contours(P.to(u.day).value, q.value, H, **Pq_plot_kwds)
+ax = fig.axes[0]
+ax.plot(ax.get_xlim(), [q.value[0], q.value[0]],
+        "-", c="#666666", linestyle=":", lw=1, zorder=-1)
+
+
+i = np.pi/2 # just as example
+e = 0
+a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
+K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2)))
+
+
+fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, ruwe.value.flatten(),
+                x_log=True, y_log=False,
+                x_label=P_label, y_label=K_label,
+                x_lim=None, y_lim=(0, 25), statistic="mean")#vmin=0, vmax=3)
+
+
+fig = plot_detection_efficiency_contours(P.to(u.day).value, K.to(u.km/u.s).value, H,
+                                         x_log=True,
+                                         x_label=P_label,
+                                         y_label=K_label,
+                                         x_lim=None, y_lim=(0, 25))#(0, 10))
+
+
+
+
+
+raise a
+
+
 population_functions = {
     "main_sequence": draw_main_sequence_binary_population,
     "black_hole": draw_black_hole_companion_population,
@@ -320,43 +529,6 @@ for desc, population_function in population_functions.items():
     ax.set_xscale("log")
     ax.clabel(contour, inline=1, fontsize=10)
     """
-    N_per_axis = 30
-    N_simulation = 50
-    args, _ = grid_main_sequence_binary_population(N_per_axis, N_simulation)
 
-    P, M_1, M_2, f_1, f_2, i = args
-
-    detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
-
-    unique_P = np.unique(P.to(u.day).value)
-    unique_q = np.unique(q.value)
-
-    bins = (unique_P, unique_q)
-
-    H = (ruwe >= ruwe_binarity_threshold).astype(float)
-
-    binned_statistic_args = (unique_P, unique_q, H)
-    binned_statistic_kwds = dict(bins=bins)
-
-    sum_, xe, ye, bin_number = binned_statistic_2d(*binned_statistic_args,
-                                                   statistic="sum",
-                                                   **binned_statistic_kwds)
-
-    count_, xe, ye, bin_number = binned_statistic_2d(*binned_statistic_args,
-                                                     statistic="count",
-                                                     **binned_statistic_kwds)
-
-    Q = sum_/count_
-    extent = (bins[0][0], bins[0][-1], bins[1][-1], bins[1][0])
-
-    fig, ax = plt.subplots()
-    ax.imshow(Q.T, extent=extent)
-    ax.set_xscale("log")
-    
-
-
-    raise a
 
     
-    raise a
-
