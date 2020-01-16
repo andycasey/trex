@@ -18,6 +18,7 @@ from astropy import constants
 from matplotlib.colors import LogNorm
 from matplotlib import cm
 from matplotlib.collections import LineCollection
+from matplotlib.ticker import MaxNLocator
 
 
 #from corner import corner
@@ -184,6 +185,37 @@ def draw_black_hole_companion_population(N):
 
     return (args, ylabel)
 
+def grid_black_hole_companion_population(N_per_axis):
+
+    P = np.logspace(0.5, 2, N_per_axis)
+    M_star = salpeter_imf(N_per_axis, 2.35, 0.1, 100)
+    M_bh = np.random.uniform(3, 5, N_per_axis) 
+    
+    v = np.array([M_bh, M_star])
+    M_1 = np.max(v, axis=0)
+    M_2 = np.min(v, axis=0)
+    
+    cos_i = np.random.uniform(0, 1, N_per_axis)
+    i = np.arccos(cos_i)
+
+    params = np.array(list(itertools.product(P, M_1, M_2, i)))
+
+    P, M_1, M_2, i = params.T
+
+    # always assume the more massive one is the bh
+    f_1 = np.zeros(M_1.size)
+    f_2 = np.ones(M_1.size)
+
+    P = P << u.day
+    M_1 = M_1 << u.solMass
+    M_2 = M_2 << u.solMass
+    i = i << u.rad
+
+    args = (P, M_1, M_2, f_1, f_2, i)
+    return (args, None)
+
+
+
 
 
 # Assume that we observe each system at a uniformly random time.
@@ -233,59 +265,6 @@ def simulate_ruwe_at_fiducial_distance(P, M_1, M_2, f1, f2, i, t, **kwargs):
 
 
     return (fiducial_ruwe, fiducial_distance)
-
-
-
-N_per_axis = 30
-N_simulation = 100
-
-print(f"Anticipated number of combinations: {(N_per_axis * N_simulation)**2:.1e}")
-
-path = f"grid_main_sequence_binary_population_{N_per_axis}_{N_simulation}.pkl"
-
-if not os.path.exists(path):
-    args, _ = grid_main_sequence_binary_population(N_per_axis, N_simulation)
-
-    P, M_1, M_2, f_1, f_2, i = args
-
-    fiducial_ruwe, fiducial_distance = simulate_ruwe_at_fiducial_distance(*args, t)
-    content = (args, fiducial_ruwe, fiducial_distance)
-
-    with open(path, "wb") as fp:
-        pickle.dump(content, fp)
-
-else:
-    with open(path, "rb") as fp:
-        content = pickle.load(fp)
-
-    args, fiducial_ruwe, fiducial_distance = content
-    P, M_1, M_2, f_1, f_2, i = args
-
-
-# Here's where we calculate things.
-q = M_2/M_1
-
-unique_P = np.unique(P.to(u.day).value)
-unique_q = np.unique(q.value)
-
-bins = (unique_P, unique_q)
-
-# Set conditions.
-e = 0
-at_distance = 10 * u.pc
-
-# Let us assume that anything with RUWE above this threshold is a binary
-ruwe_binarity_threshold = 1.5
-K_binarity_threshold = 3 * u.km/u.s 
-
-a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
-K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2))).to(u.km/u.s)
-ruwe = (fiducial_ruwe * (fiducial_distance / at_distance)).value.flatten()
-
-de_ast = (ruwe >= ruwe_binarity_threshold).astype(float).flatten()
-
-# TODO: de_rv depends on the number of observed transits
-de_rv = (K >= K_binarity_threshold).astype(float).flatten()
 
 
 def _get_bins(x, y, x_log, y_log, x_lim=None, y_lim=None, N_per_axis=None):
@@ -353,7 +332,8 @@ def plot_mesh(x, y, z, statistic="mean", x_log=False, y_log=False, **kwargs):
 
 
 
-def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, y_log=False, fill_value=None, **kwargs):
+def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, y_log=False, fill_value=None, 
+                                       axes=None, **kwargs):
 
     # Pop out kwargs
     N_per_axis = kwargs.pop("N_per_axis", np.min([np.unique(xy).size for xy in (x, y)]))
@@ -361,6 +341,8 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
     y_lim = kwargs.pop("y_lim", None)
     x_label = kwargs.pop("x_label", None)
     y_label = kwargs.pop("y_label", None)
+    clabel_kwds = kwargs.pop("clabel_kwds", dict())
+    full_output = kwargs.pop("full_output", False)
 
     bin_args = (x, y, x_log, y_log, x_lim, y_lim)
     x_bins, y_bins = _get_bins(*bin_args, N_per_axis)
@@ -378,20 +360,38 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
 
     extent = (xe[0], xe[-1], ye[0], ye[-1])
     
+    if axes is None:
+        fig, ax = plt.subplots()
+        twin_ax = ax.twinx()
 
-    fig, ax = plt.subplots()
+    else:
+        if isinstance(axes, tuple):
+            ax, twin_ax = axes
+        else:
+            ax = axes
+            twin_ax = ax.twinx() 
+        fig = ax.figure
 
     set_kwds = dict()
     if x_log: set_kwds.update(xscale="log")
     if y_log: set_kwds.update(yscale="log")
     ax.set(**set_kwds)
 
-    twin_ax = ax.twinx()
+    filled = kwargs.pop("filled", False)
+
     contour_kwds = dict(levels=[0, 0.25, 0.5, 0.75, 0.99, 1.0])
     contour_kwds.update(kwargs)
-    contour = twin_ax.contour(x_unique, y_unique, Q.T, **contour_kwds)
-    ax.clabel(contour, inline=1, fontsize=10)
 
+    if filled:
+        twin_ax.contourf(x_unique, y_unique, Q.T, **contour_kwds)
+    contour = twin_ax.contour(x_unique, y_unique, Q.T, **contour_kwds)
+
+    if kwargs.get("contour_labels", False):
+        clabel_kwds.setdefault("inline", True)
+        clabel_kwds.setdefault("fontsize", 10)
+        clabel_kwds.setdefault("fmt", "%1.1f")
+        ax.clabel(contour, **clabel_kwds)
+        
     ax.set_xlim(twin_ax.get_xlim())
     ax.set_ylim(twin_ax.get_ylim())
 
@@ -407,26 +407,174 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
 
     fig.tight_layout()
 
-    return fig
+    return fig if not full_output else (fig, ax, twin_ax)
 
 
-P_label = r"$P$ $/$ $\textrm{days}^{-1}$"
-K_label = r"$K$ $/$ $\textrm{km\,s}^{-1}$"
-q_label = r"$q$"
+
+
+N_per_axis = 30
+N_simulation = 100
+
+print(f"Anticipated number of combinations: {(N_per_axis * N_simulation)**2:.1e}")
+
+ms_path = f"grid_main_sequence_binary_population_{N_per_axis}_{N_simulation}.pkl"
+
+if not os.path.exists(ms_path):
+    print("Running MS simulation")
+    args, _ = grid_main_sequence_binary_population(N_per_axis, N_simulation)
+
+    P, M_1, M_2, f_1, f_2, i = args
+
+    fiducial_ruwe, fiducial_distance = simulate_ruwe_at_fiducial_distance(*args, t)
+    content = (args, fiducial_ruwe, fiducial_distance)
+
+    with open(ms_path, "wb") as fp:
+        pickle.dump(content, fp)
+
+
+bh_path = f"grid_dark_passengers_binary_population_{N_per_axis}_{N_simulation}.pkl"
+if not os.path.exists(bh_path):
+    print("Running BH simulation")
+
+    args, _ = grid_black_hole_companion_population(N_per_axis)
+    P, M_1, M_2, f_1, f_2, i = args
+
+    fiducial_ruwe, fiducial_distance = simulate_ruwe_at_fiducial_distance(*args, t)
+    content = (args, fiducial_ruwe, fiducial_distance)
+
+    with open(bh_path, "wb") as fp:
+        pickle.dump(content, fp)
+
+
+chosen_path = bh_path    
+
+
+print(f"Loading from {chosen_path}")
+with open(chosen_path, "rb") as fp:
+    content = pickle.load(fp)
+
+args, fiducial_ruwe, fiducial_distance = content
+P, M_1, M_2, f_1, f_2, i = args
+
+
+
+# Here's where we calculate things.
+q = M_2/M_1
+
+unique_P = np.unique(P.to(u.day).value)
+unique_q = np.unique(q.value)
+
+bins = (unique_P, unique_q)
+
+# Set conditions.
+
+at_distances = (10, 100, 1000)
+
+master_fig, master_axes = plt.subplots(2, len(at_distances), 
+                                       figsize=(10, 5))
+master_axes = np.array(master_axes).flatten()
+
+for d, at_distance in enumerate(at_distances):
+    at_distance *= u.pc
+
+    # Let us assume that anything with RUWE above this threshold is a binary
+    ruwe_binarity_threshold = 1.5
+    K_lower_threshold = 3 * u.km/u.s # approx
+    K_upper_threshold = 20 * u.km/u.s # approx
+
+    e = 0
+
+    a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
+    K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2))).to(u.km/u.s)
+    ruwe = (fiducial_ruwe * (fiducial_distance / at_distance)).value.flatten()
+
+    de_ast = (ruwe >= ruwe_binarity_threshold).astype(float).flatten()
+
+    # TODO: de_rv depends on the number of observed transits
+    de_rv = ((K_upper_threshold >= K) * (K >= K_lower_threshold)).astype(float).flatten()
+    de_rv_nocut = ((K >= K_lower_threshold)).astype(float).flatten()
+
+
+    P_label = r"$P$ $/$ $\textrm{days}^{-1}$"
+    K_label = r"$K$ $/$ $\textrm{km\,s}^{-1}$"
+    q_label = r"$q$"
+
+    levels = np.linspace(0, 1, 5)
+
+    PK_plot_kwds = dict(x_log=True, y_log=False,
+                        x_lim=None, y_lim=(0, 50),
+                        fill_value=0,
+                        levels=levels,
+                        filled=False, contour_labels=True,
+                        clabel_kwds=dict(fmt="%1.2f"),
+                        x_label=None, y_label=K_label)
+
+    Pq_plot_kwds = dict(x_log=True, y_log=False,
+                        x_lim=None, y_lim=(0, 1),
+                        fill_value=0,
+                        levels=levels,
+                        filled=False, contour_labels=True,
+                        clabel_kwds=dict(fmt="%1.2f"),
+                        x_label=P_label, y_label=q_label)
+
+    ax_PK = master_axes[d]
+    ax_Pq = master_axes[d + len(at_distances)]
+
+    # Plot detection efficiency contours from astrometry.
+    title = r"$\textrm{{at}}$ ${{{0:.0f}}}$ $\textrm{{pc}}$".format(at_distance.to(u.pc).value)
+    *_, twin_ax = plot_detection_efficiency_contours(P.value, q.value, de_ast,
+                                       cmap="Blues", axes=ax_Pq,
+                                       full_output=True,
+                                       **Pq_plot_kwds)
+    ax_Pq.plot(ax_Pq.get_xlim(), [q.value[0], q.value[0]],
+               "-", c="#666666", linestyle=":", lw=1, zorder=-1)
+
+
+
+    # On the same figure, plot RV.
+    plot_detection_efficiency_contours(P.value, q.value, de_rv,
+                                    cmap="Purples", axes=ax_Pq, 
+                                    zorder=-1,
+                                    **Pq_plot_kwds)
+
+
+    # Now plot P/K
+    *_, twin_ax = plot_detection_efficiency_contours(P.value, K.value, de_ast,
+                                       cmap="Blues", axes=ax_PK,
+                                       full_output=True,
+                                       **PK_plot_kwds)
+    plot_detection_efficiency_contours(P.value, K.value, de_rv,
+                                       cmap="Purples", axes=ax_PK, 
+                                       zorder=-1,
+                                       **PK_plot_kwds)
+    twin_ax.set_xticklabels([])
+
+    xi = np.logspace(*np.log10(P.value[[0, -1]]), 100)
+    # Assume best conditions: low inclination and eccentricity ~ 0.8. Where is the limit of our simulations?
+    yi = ((1/np.sqrt(1-0.8**2)) * ((4 * np.pi * constants.G * np.max(M_1))/(x * u.day))**(1/3)).to(u.km/u.s).value
+    ax_PK.plot(xi, yi, "-", linestyle=":", c="#666666", lw=1)
+
+    ax_PK.set_title(title)
+
+
+
+for ax in master_axes:
+    if ax.is_first_col():
+        ax.yaxis.set_major_locator(MaxNLocator(5))
+    else:
+        ax.set_ylabel("")
+        ax.set_yticklabels([])
+
+master_fig.tight_layout()
+
+
+
 
 # show me in P, K space where we have things
 fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, ruwe,
                 statistic="min", x_log=True,
                 x_label=P_label, y_label=K_label)
 
-
-PK_plot_kwds = dict(x_log=True, y_log=False,
-                    x_lim=None, y_lim=(0, 50),
-                    x_label=P_label, y_label=K_label)
-
-Pq_plot_kwds = dict(x_log=True, y_log=False,
-                    x_lim=None, y_lim=(0, 1),
-                    x_label=P_label, y_label=q_label)
 
 
 # Sanity check
@@ -435,11 +583,6 @@ fig = plot_mesh(P.to(u.day).value, q.value, ruwe,
 
 
 # Plot detection efficiency contours in astrometry.
-fig = plot_detection_efficiency_contours(P.to(u.day).value, q.value, de_ast,
-                                         **Pq_plot_kwds)
-ax = fig.axes[0]
-ax.plot(ax.get_xlim(), [q.value[0], q.value[0]],
-        "-", c="#666666", linestyle=":", lw=1, zorder=-1)
 
 
 # Sanity plot
@@ -450,12 +593,6 @@ fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, K,
 fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, de_rv,
                 statistic="mean",
                 **PK_plot_kwds)
-
-
-# Plot detection efficiency contours in radial velocity.
-#P2 = np.hstack([P.to(u.day).value, 1e4])
-#K2 = np.hstack([K.to(u.km/u.s).value, 20])
-#de_rv2 = np.hstack([de_rv, 0])
 
 fig = plot_detection_efficiency_contours(P.value, K.value, de_ast,
                                          fill_value=0,
