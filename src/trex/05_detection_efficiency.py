@@ -2,7 +2,7 @@ import h5py as h5
 
 import itertools
 import numpy as np
-import pickle 
+import pickle
 import os
 import multiprocessing as mp
 import matplotlib.pyplot as plt
@@ -11,7 +11,7 @@ from astropy.table import Table
 from astropy import (coordinates as coord, units as u)
 from astropy.coordinates.matrix_utilities import (matrix_product, rotation_matrix)
 from tqdm import tqdm
-from scipy import (optimize as op)
+from scipy import stats, optimize as op
 from scipy.stats import binned_statistic_2d
 from astropy import constants
 
@@ -44,6 +44,12 @@ def worker(j, k, other_args, **kwds):
 
 N = 10_000 # simulations per distance trial
 M = 1 # time draws per simulation
+
+def simulate_rv_nb_transits(N):
+    # from fitting:
+    params = (0.5659035845471416, -0.4360399191111187, 7.575680034085464)
+    return np.clip(stats.lognorm.rvs(*params, size=N), 2, np.inf).astype(int)
+
 
 # Gaia Data Release:
 # 2: Gaia DR 2
@@ -126,7 +132,7 @@ def grid_main_sequence_binary_population(N_per_axis, N_simulation):
     #cos_i = np.array([1.0])
     #i = np.arccos(cos_i)
     M_1 = salpeter_imf(N_simulation, 2.35, 0.1, 100)
-    
+
     params = np.array(list(itertools.product(P, q, M_1, i)))
 
     P, q, M_1, i = params.T
@@ -142,6 +148,36 @@ def grid_main_sequence_binary_population(N_per_axis, N_simulation):
 
     args = (P, M_1, M_2, f_1, f_2, i)
     return (args, None)
+
+
+def grid_giant_main_sequence_binary_population(N_per_axis, N_simulation):
+
+    P = np.logspace(1, 7, N_per_axis)
+    q = np.linspace(0.1, 1, N_per_axis)
+
+    cos_i = np.linspace(0, 1, N_simulation)
+    i = np.arccos(cos_i)
+    #cos_i = np.array([1.0])
+    #i = np.arccos(cos_i)
+    M_1 = salpeter_imf(N_simulation, 2.35, 0.1, 100)
+
+    params = np.array(list(itertools.product(P, q, M_1, i)))
+
+    P, q, M_1, i = params.T
+    M_2 = q * M_1
+
+    # TODO: revisit this assumption?
+    f_1 = 1000 # 
+    f_2 = 1
+
+    P = P << u.day
+    M_1 = M_1 << u.solMass
+    M_2 = M_2 << u.solMass
+    i = i << u.rad
+
+    args = (P, M_1, M_2, f_1, f_2, i)
+    return (args, None)
+
 
 
 
@@ -181,7 +217,7 @@ def draw_black_hole_companion_population(N):
     i = np.arccos(cos_i) * u.rad
 
     args = (P, M_1, M_2, f_1, f_2, i)
-    ylabel = r"$\textrm{detection efficiency of black hole companions}$"    
+    ylabel = r"$\textrm{detection efficiency of black hole companions}$"
 
     return (args, ylabel)
 
@@ -189,12 +225,12 @@ def grid_black_hole_companion_population(N_per_axis):
 
     P = np.logspace(0.5, 2, N_per_axis)
     M_star = salpeter_imf(N_per_axis, 2.35, 0.1, 100)
-    M_bh = np.random.uniform(3, 5, N_per_axis) 
-    
+    M_bh = np.random.uniform(3, 5, N_per_axis)
+
     v = np.array([M_bh, M_star])
     M_1 = np.max(v, axis=0)
     M_2 = np.min(v, axis=0)
-    
+
     cos_i = np.random.uniform(0, 1, N_per_axis)
     i = np.arccos(cos_i)
 
@@ -239,7 +275,7 @@ def simulate_ruwe_at_fiducial_distance(P, M_1, M_2, f1, f2, i, t, **kwargs):
         kwds = dict()
         kwds.update(kwargs)
 
-        for j, (P_, M_1_, M_2_, f1_, f2_, i_) in tqdm(enumerate(zip(*(P, M_1, M_2, f1, f2, i))), 
+        for j, (P_, M_1_, M_2_, f1_, f2_, i_) in tqdm(enumerate(zip(*(P, M_1, M_2, f1, f2, i))),
                                                       desc="Pooling", total=P.size):
 
             args = (t, P_, M_1_, M_2_, fiducial_distance)
@@ -268,7 +304,7 @@ def simulate_ruwe_at_fiducial_distance(P, M_1, M_2, f1, f2, i, t, **kwargs):
 
 
 def _get_bins(x, y, x_log, y_log, x_lim=None, y_lim=None, N_per_axis=None):
-    
+
     N_per_axis = N_per_axis or np.min([np.unique(xy).size for xy in (x, y)])
     xr = (x.min(), x.max())
     yr = (y.min(), y.max())
@@ -302,7 +338,7 @@ def plot_mesh(x, y, z, statistic="mean", x_log=False, y_log=False, **kwargs):
 
     x_lim, y_lim = [kwargs.pop(f"{_}_lim", None) for _ in "xy"]
     x_label, y_label = [kwargs.pop(f"{_}_label", None) for _ in "xy"]
-    
+
     N_per_axis = kwargs.pop("N_per_axis", np.min([np.unique(xy).size for xy in (x, y)]))
 
     bin_args = (x, y, x_log, y_log, x_lim, y_lim)
@@ -332,7 +368,7 @@ def plot_mesh(x, y, z, statistic="mean", x_log=False, y_log=False, **kwargs):
 
 
 
-def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, y_log=False, fill_value=None, 
+def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, y_log=False, fill_value=None,
                                        axes=None, **kwargs):
 
     # Pop out kwargs
@@ -343,6 +379,8 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
     y_label = kwargs.pop("y_label", None)
     clabel_kwds = kwargs.pop("clabel_kwds", dict())
     full_output = kwargs.pop("full_output", False)
+    
+
 
     bin_args = (x, y, x_log, y_log, x_lim, y_lim)
     x_bins, y_bins = _get_bins(*bin_args, N_per_axis)
@@ -359,7 +397,7 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
         Q[~np.isfinite(Q)] = fill_value
 
     extent = (xe[0], xe[-1], ye[0], ye[-1])
-    
+
     if axes is None:
         fig, ax = plt.subplots()
         twin_ax = ax.twinx()
@@ -369,7 +407,7 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
             ax, twin_ax = axes
         else:
             ax = axes
-            twin_ax = ax.twinx() 
+            twin_ax = ax.twinx()
         fig = ax.figure
 
     set_kwds = dict()
@@ -391,7 +429,7 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
         clabel_kwds.setdefault("fontsize", 10)
         clabel_kwds.setdefault("fmt", "%1.1f")
         ax.clabel(contour, **clabel_kwds)
-        
+
     ax.set_xlim(twin_ax.get_xlim())
     ax.set_ylim(twin_ax.get_ylim())
 
@@ -401,7 +439,7 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
 
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-
+        
     twin_ax.set_yticklabels([])
     twin_ax.yaxis.set_tick_params(width=0)
 
@@ -426,13 +464,65 @@ if not os.path.exists(ms_path):
     P, M_1, M_2, f_1, f_2, i = args
 
     fiducial_ruwe, fiducial_distance = simulate_ruwe_at_fiducial_distance(*args, t)
-    content = (args, fiducial_ruwe, fiducial_distance)
+
+    # These things don't depend on distance:
+    e = 0
+    a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
+    K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2))).to(u.km/u.s)
+
+    # Translate K into some rv jitter (roughly)
+    dt = (obs_end - obs_start).to(u.day).value
+    radial_velocity_error = np.zeros(K.size)
+    rv_nb_transits = simulate_rv_nb_transits(K.size)
+
+    for j, (K_, P_, rv_nb_transits_) in tqdm(enumerate(zip(K.value, P.value, rv_nb_transits)),
+                                                desc="Simulating RV jitter", total=K.size):
+        t_ = np.random.uniform(0, dt, rv_nb_transits_)
+        radial_velocity_error[j] = np.std((K_ * np.sin(2 * np.pi * t_ / P_ + np.random.uniform(0, 2 * np.pi))) \
+                                + np.random.normal(0, 0.5, rv_nb_transits_)) # intrinsic scatter.
+
+    content = (args, fiducial_ruwe, fiducial_distance, radial_velocity_error, rv_nb_transits)
 
     with open(ms_path, "wb") as fp:
         pickle.dump(content, fp)
 
+'''
+giant_ms_path = f"grid_giant_main_sequence_binary_population_{N_per_axis}_{N_simulation}.pkl"
+
+if not os.path.exists(giant_ms_path):
+    print("Running giant-main-sequence simulation")
+
+    args, _ = grid_giant_main_sequence_binary_population(N_per_axis, N_simulation)
+
+    P, M_1, M_2, f_1, f_2, i = args
+
+    fiducial_ruwe, fiducial_distance = simulate_ruwe_at_fiducial_distance(*args, t)
+
+    # These things don't depend on distance:
+    e = 0
+    a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
+    K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2))).to(u.km/u.s)
+
+    # Translate K into some rv jitter (roughly)
+    dt = (obs_end - obs_start).to(u.day).value
+    radial_velocity_error = np.zeros(K.size)
+    rv_nb_transits = simulate_rv_nb_transits(K.size)
+
+    for j, (K_, P_, rv_nb_transits_) in tqdm(enumerate(zip(K.value, P.value, rv_nb_transits)),
+                                                desc="Simulating RV jitter", total=K.size):
+        t_ = np.random.uniform(0, dt, rv_nb_transits_)
+        radial_velocity_error[j] = np.std((K_ * np.sin(2 * np.pi * t_ / P_ + np.random.uniform(0, 2 * np.pi))) \
+                                + np.random.normal(0, 0.5, rv_nb_transits_)) # intrinsic scatter.
+
+    content = (args, fiducial_ruwe, fiducial_distance, radial_velocity_error, rv_nb_transits)
+
+    with open(giant_ms_path, "wb") as fp:
+        pickle.dump(content, fp)
+'''
 
 bh_path = f"grid_dark_passengers_binary_population_{N_per_axis}.pkl"
+bh_path = f"grid_dark_passengers_binary_population_50.pkl"
+
 if not os.path.exists(bh_path):
     print("Running BH simulation")
 
@@ -440,60 +530,73 @@ if not os.path.exists(bh_path):
     P, M_1, M_2, f_1, f_2, i = args
 
     fiducial_ruwe, fiducial_distance = simulate_ruwe_at_fiducial_distance(*args, t)
-    content = (args, fiducial_ruwe, fiducial_distance)
+
+    # These things don't depend on distance:
+    e = 0
+    a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
+    K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2))).to(u.km/u.s)
+
+    # Translate K into some rv jitter (roughly)
+    dt = (obs_end - obs_start).to(u.day).value
+    radial_velocity_error = np.zeros(K.size)
+    rv_nb_transits = simulate_rv_nb_transits(K.size)
+
+    for j, (K_, P_, rv_nb_transits_) in tqdm(enumerate(zip(K.value, P.value, rv_nb_transits)),
+                                                desc="Simulating RV jitter", total=K.size):
+        t_ = np.random.uniform(0, dt, rv_nb_transits_)
+        radial_velocity_error[j] = np.std((K_ * np.sin(2 * np.pi * t_ / P_ + np.random.uniform(0, 2 * np.pi))) \
+                                + np.random.normal(0, 0.5, rv_nb_transits_)) # intrinsic scatter.
+
+    content = (args, fiducial_ruwe, fiducial_distance, radial_velocity_error, rv_nb_transits)
 
     with open(bh_path, "wb") as fp:
         pickle.dump(content, fp)
 
 
-chosen_path = bh_path    
+chosen_path = bh_path
 
 
 print(f"Loading from {chosen_path}")
 with open(chosen_path, "rb") as fp:
     content = pickle.load(fp)
 
-args, fiducial_ruwe, fiducial_distance = content
+args, fiducial_ruwe, fiducial_distance, radial_velocity_error, rv_nb_transits = content
 P, M_1, M_2, f_1, f_2, i = args
 
-
+# Calculate some things we will need.
+q = M_2/M_1
+e = 0
+a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
+K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2))).to(u.km/u.s)
+j_rv = np.sqrt((2 * rv_nb_transits)/np.pi * radial_velocity_error**2 - 0.11**2)
 
 # Here's where we calculate things.
-q = M_2/M_1
 
 unique_P = np.unique(P.to(u.day).value)
 unique_q = np.unique(q.value)
 
 bins = (unique_P, unique_q)
 
-# Set conditions.
+# Detection limits.
+ruwe_binarity_threshold = 1.5
+j_rv_lower_threshold = 3 * u.km/u.s # approx
+radial_velocity_error_limit = 20 # km/s
+
+de_rv = ((radial_velocity_error <= radial_velocity_error_limit) * (j_rv >= j_rv_lower_threshold)).astype(float).flatten()
 
 at_distances = (10, 100, 1000)
 
-master_fig, master_axes = plt.subplots(2, len(at_distances), 
+master_fig, master_axes = plt.subplots(2, len(at_distances),
                                        figsize=(10, 5))
 master_axes = np.array(master_axes).flatten()
+
 
 for d, at_distance in enumerate(at_distances):
     at_distance *= u.pc
 
     # Let us assume that anything with RUWE above this threshold is a binary
-    ruwe_binarity_threshold = 1.5
-    K_lower_threshold = 3 * u.km/u.s # approx
-    K_upper_threshold = 20 * u.km/u.s # approx
-
-    e = 0
-
-    a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
-    K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2))).to(u.km/u.s)
     ruwe = (fiducial_ruwe * (fiducial_distance / at_distance)).value.flatten()
-
     de_ast = (ruwe >= ruwe_binarity_threshold).astype(float).flatten()
-
-    # TODO: de_rv depends on the number of observed transits
-    de_rv = ((K_upper_threshold >= K) * (K >= K_lower_threshold)).astype(float).flatten()
-    de_rv_nocut = ((K >= K_lower_threshold)).astype(float).flatten()
-
 
     P_label = r"$P$ $/$ $\textrm{days}^{-1}$"
     K_label = r"$K$ $/$ $\textrm{km\,s}^{-1}$"
@@ -506,7 +609,7 @@ for d, at_distance in enumerate(at_distances):
                         fill_value=0,
                         levels=levels,
                         filled=False, contour_labels=True,
-                        clabel_kwds=dict(fmt="%1.2f"),
+                        clabel_kwds=dict(fmt="%1.2f", fontsize=8),
                         x_label=None, y_label=K_label)
 
     Pq_plot_kwds = dict(x_log=True, y_log=False,
@@ -514,7 +617,7 @@ for d, at_distance in enumerate(at_distances):
                         fill_value=0,
                         levels=levels,
                         filled=False, contour_labels=True,
-                        clabel_kwds=dict(fmt="%1.2f"),
+                        clabel_kwds=dict(fmt="%1.2f", fontsize=8),
                         x_label=P_label, y_label=q_label)
 
     ax_PK = master_axes[d]
@@ -533,7 +636,7 @@ for d, at_distance in enumerate(at_distances):
 
     # On the same figure, plot RV.
     plot_detection_efficiency_contours(P.value, q.value, de_rv,
-                                    cmap="Purples", axes=ax_Pq, 
+                                    cmap="Purples", axes=ax_Pq,
                                     zorder=-1,
                                     **Pq_plot_kwds)
 
@@ -544,14 +647,14 @@ for d, at_distance in enumerate(at_distances):
                                        full_output=True,
                                        **PK_plot_kwds)
     plot_detection_efficiency_contours(P.value, K.value, de_rv,
-                                       cmap="Purples", axes=ax_PK, 
+                                       cmap="Purples", axes=ax_PK,
                                        zorder=-1,
                                        **PK_plot_kwds)
     twin_ax.set_xticklabels([])
 
     xi = np.logspace(*np.log10(P.value[[0, -1]]), 100)
     # Assume best conditions: low inclination and eccentricity ~ 0.8. Where is the limit of our simulations?
-    yi = ((1/np.sqrt(1-0.8**2)) * ((4 * np.pi * constants.G * np.max(M_1))/(x * u.day))**(1/3)).to(u.km/u.s).value
+    yi = ((1/np.sqrt(1-0.8**2)) * ((4 * np.pi * constants.G * np.max(M_1))/(xi * u.day))**(1/3)).to(u.km/u.s).value
     ax_PK.plot(xi, yi, "-", linestyle=":", c="#666666", lw=1)
 
     ax_PK.set_title(title)
@@ -567,6 +670,7 @@ for ax in master_axes:
 
 master_fig.tight_layout()
 
+raise a
 
 
 
@@ -672,7 +776,7 @@ for desc, population_function in population_functions.items():
     fig.savefig(f"detection_efficiency_{desc}.pdf", dpi=300)
 
 
-    # 
+    #
     """
     args, ylabel = draw_main_sequence_binary_population(1_000_000)
     P, M_1, M_2, f_1, f_2, i = args
@@ -699,14 +803,14 @@ for desc, population_function in population_functions.items():
     binned_statistic_kwds = dict(bins=bins)
 
 
-    sum_, xedges, yedges, binnumber = binned_statistic_2d(*binned_statistic_args, 
+    sum_, xedges, yedges, binnumber = binned_statistic_2d(*binned_statistic_args,
                                                            statistic="sum",
                                                            **binned_statistic_kwds)
 
-    count, xedges, yedges, binnumber = binned_statistic_2d(*binned_statistic_args, 
+    count, xedges, yedges, binnumber = binned_statistic_2d(*binned_statistic_args,
                                                            statistic="count",
                                                            **binned_statistic_kwds)
-    
+
     H = sum_/count
 
 
@@ -728,4 +832,4 @@ for desc, population_function in population_functions.items():
     """
 
 
-    
+
