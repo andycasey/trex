@@ -272,20 +272,20 @@ bins = (unique_P, unique_q)
 
 # Set conditions.
 e = 0
-at_distance = 1000 * u.pc
+at_distance = 10 * u.pc
 
 # Let us assume that anything with RUWE above this threshold is a binary
 ruwe_binarity_threshold = 1.5
 K_binarity_threshold = 3 * u.km/u.s 
 
 a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
-K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2)))
+K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2))).to(u.km/u.s)
 ruwe = (fiducial_ruwe * (fiducial_distance / at_distance)).value.flatten()
 
 de_ast = (ruwe >= ruwe_binarity_threshold).astype(float).flatten()
 
 # TODO: de_rv depends on the number of observed transits
-de_rv = (K >= K_binarity_threshold).value.astype(float).flatten()
+de_rv = (K >= K_binarity_threshold).astype(float).flatten()
 
 
 def _get_bins(x, y, x_log, y_log, x_lim=None, y_lim=None, N_per_axis=None):
@@ -353,7 +353,7 @@ def plot_mesh(x, y, z, statistic="mean", x_log=False, y_log=False, **kwargs):
 
 
 
-def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, y_log=False, **kwargs):
+def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, y_log=False, fill_value=None, **kwargs):
 
     # Pop out kwargs
     N_per_axis = kwargs.pop("N_per_axis", np.min([np.unique(xy).size for xy in (x, y)]))
@@ -373,6 +373,8 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
     denom, xe, ye, bin_number = binned_statistic_2d(*args, statistic="count", **kwds)
 
     Q = numer/denom
+    if fill_value is not None:
+        Q[~np.isfinite(Q)] = fill_value
 
     extent = (xe[0], xe[-1], ye[0], ye[-1])
     
@@ -439,9 +441,40 @@ ax = fig.axes[0]
 ax.plot(ax.get_xlim(), [q.value[0], q.value[0]],
         "-", c="#666666", linestyle=":", lw=1, zorder=-1)
 
+
+# Sanity plot
+fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, K,
+                statistic="max",
+                **PK_plot_kwds)
+
+fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, de_rv,
+                statistic="mean",
+                **PK_plot_kwds)
+
+
 # Plot detection efficiency contours in radial velocity.
-fig = plot_detection_efficiency_contours(P.to(u.day).value, K.to(u.km/u.s).value, de_rv,
+#P2 = np.hstack([P.to(u.day).value, 1e4])
+#K2 = np.hstack([K.to(u.km/u.s).value, 20])
+#de_rv2 = np.hstack([de_rv, 0])
+
+fig = plot_detection_efficiency_contours(P.value, K.value, de_ast,
+                                         fill_value=0,
                                          **PK_plot_kwds)
+
+fig = plot_mesh(P.value, K.value, ruwe, statistic="mean", **PK_plot_kwds)
+
+x = np.logspace(*np.log10(P.to(u.day).value[[0, -1]]), 100)
+# Assume best conditions: low inclination and zero eccentricity. Where is the limit of our simulations?
+y = (((4 * np.pi * constants.G * np.max(M_1))/(x * u.day))**(1/3)).to(u.km/u.s).value
+ax = fig.axes[0]
+ax.plot(x, y, "-", linestyle=":", c="#666666", lw=1)
+
+
+
+fig = plot_mesh(P.value, q.value, K,
+                statistic="mean",
+                **Pq_plot_kwds)
+
 
 
 fig = plot_detection_efficiency_contours(P.to(u.day).value, q.value, de_rv,
