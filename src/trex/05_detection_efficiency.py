@@ -432,7 +432,7 @@ if not os.path.exists(ms_path):
         pickle.dump(content, fp)
 
 
-bh_path = f"grid_dark_passengers_binary_population_{N_per_axis}_{N_simulation}.pkl"
+bh_path = f"grid_dark_passengers_binary_population_{N_per_axis}.pkl"
 if not os.path.exists(bh_path):
     print("Running BH simulation")
 
