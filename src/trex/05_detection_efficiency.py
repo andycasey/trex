@@ -2,6 +2,8 @@ import h5py as h5
 
 import itertools
 import numpy as np
+import pickle 
+import os
 import multiprocessing as mp
 import matplotlib.pyplot as plt
 from astropy.time import Time
@@ -50,8 +52,6 @@ gaia_data_release = 2
 #population = "black hole companions"
 population = "hot jupiters"
 
-# Let us assume that anything with RUWE above this threshold is a binary
-ruwe_binarity_threshold = 1.5
 
 populations = [
     "hot jupiters",
@@ -236,16 +236,32 @@ def simulate_detection_efficiency(P, M_1, M_2, f1, f2, i, t, distances, **kwargs
 
 
 N_per_axis = 30
-N_simulation = 30
+N_simulation = 100
 
 print(f"Anticipated number of combinations: {(N_per_axis * N_simulation)**2:.1e}")
 
-args, _ = grid_main_sequence_binary_population(N_per_axis, N_simulation)
+path = f"grid_main_sequence_binary_population_{N_per_axis}_{N_simulation}.pkl"
 
-P, M_1, M_2, f_1, f_2, i = args
+if not os.path.exists(path):
+    args, _ = grid_main_sequence_binary_population(N_per_axis, N_simulation)
 
-detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
+    P, M_1, M_2, f_1, f_2, i = args
 
+    detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
+    content = (args, detection_efficiency, fiducial_ruwe, fiducial_distance)
+
+    with open(path, "wb") as fp:
+        pickle.dump(content, fp)
+
+else:
+    with open(path, "rb") as fp:
+        content = pickle.load(fp)
+
+    args, detection_efficiency, fiducial_ruwe, fiducial_distance = content
+    P, M_1, M_2, f_1, f_2, i = args
+
+
+# Here's where we calculate things.
 q = M_2/M_1
 
 unique_P = np.unique(P.to(u.day).value)
@@ -253,10 +269,22 @@ unique_q = np.unique(q.value)
 
 bins = (unique_P, unique_q)
 
+# Set conditions.
+e = 0
 at_distance = 1000 * u.pc
-ruwe = fiducial_ruwe * (fiducial_distance / at_distance)
 
-H = (ruwe >= ruwe_binarity_threshold).astype(float).flatten()
+# Let us assume that anything with RUWE above this threshold is a binary
+ruwe_binarity_threshold = 1.5
+K_binarity_threshold = 3 * u.km/u.s 
+
+a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
+K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2)))
+ruwe = (fiducial_ruwe * (fiducial_distance / at_distance)).value.flatten()
+
+de_ast = (ruwe >= ruwe_binarity_threshold).astype(float).flatten()
+
+# TODO: de_rv depends on the number of observed transits
+de_rv = (K >= K_binarity_threshold).value.astype(float).flatten()
 
 
 def _get_bins(x, y, x_log, y_log, x_lim=None, y_lim=None, N_per_axis=None):
@@ -379,46 +407,54 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
     return fig
 
 
-i = np.pi/2 # just as example 
-e = 0
-a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
-K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2)))
-
 P_label = r"$P$ $/$ $\textrm{days}^{-1}$"
 K_label = r"$K$ $/$ $\textrm{km\,s}^{-1}$"
 q_label = r"$q$"
 
 # show me in P, K space where we have things
-fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, ruwe.value.flatten(),
+fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, ruwe,
                 statistic="min", x_log=True,
                 x_label=P_label, y_label=K_label)
 
 
-raise a
-
+PK_plot_kwds = dict(x_log=True, y_log=False,
+                    x_lim=None, y_lim=(0, 50),
+                    x_label=P_label, y_label=K_label)
 
 Pq_plot_kwds = dict(x_log=True, y_log=False,
                     x_lim=None, y_lim=(0, 1),
                     x_label=P_label, y_label=q_label)
 
-fig = plot_mesh(P.to(u.day).value, q.value, ruwe.value.flatten(),
+
+# Sanity check
+fig = plot_mesh(P.to(u.day).value, q.value, ruwe,
                 **Pq_plot_kwds)
 
 
-fig = plot_detection_efficiency_contours(P.to(u.day).value, q.value, H, **Pq_plot_kwds)
+# Plot detection efficiency contours in astrometry.
+fig = plot_detection_efficiency_contours(P.to(u.day).value, q.value, de_ast,
+                                         **Pq_plot_kwds)
 ax = fig.axes[0]
 ax.plot(ax.get_xlim(), [q.value[0], q.value[0]],
         "-", c="#666666", linestyle=":", lw=1, zorder=-1)
 
+# Plot detection efficiency contours in radial velocity.
+fig = plot_detection_efficiency_contours(P.to(u.day).value, K.to(u.km/u.s).value, de_rv,
+                                         **PK_plot_kwds)
 
 
-fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, ruwe.value.flatten(),
+fig = plot_detection_efficiency_contours(P.to(u.day).value, q.value, de_rv,
+                                         **Pq_plot_kwds)
+
+raise a
+
+fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, ruwe,
                 x_log=True, y_log=False,
                 x_label=P_label, y_label=K_label,
                 x_lim=None, y_lim=(0, 25), statistic="mean")#vmin=0, vmax=3)
 
 
-fig = plot_detection_efficiency_contours(P.to(u.day).value, K.to(u.km/u.s).value, H,
+fig = plot_detection_efficiency_contours(P.to(u.day).value, K.to(u.km/u.s).value, de_ast,
                                          x_log=True,
                                          x_label=P_label,
                                          y_label=K_label,
