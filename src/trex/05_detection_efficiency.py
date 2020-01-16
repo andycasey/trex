@@ -18,7 +18,7 @@ from matplotlib import cm
 from matplotlib.collections import LineCollection
 
 
-from corner import corner
+#from corner import corner
 
 import sys
 sys.path.insert(0, "../code")
@@ -115,7 +115,7 @@ def draw_main_sequence_binary_population(N):
     return (args, ylabel)
 
 
-def Pq_grid_main_sequence_binary_population(N_per_axis, N_simulation):
+def grid_main_sequence_binary_population(N_per_axis, N_simulation):
 
     P = np.logspace(1, 7, N_per_axis)
     q = np.linspace(0.1, 1, N_per_axis)
@@ -141,28 +141,6 @@ def Pq_grid_main_sequence_binary_population(N_per_axis, N_simulation):
 
     args = (P, M_1, M_2, f_1, f_2, i)
     return (args, None)
-
-
-def PK_grid_main_sequence_binary_population(N_per_axis, N_simulation, K_max=300 * u.km/u.s):
-    # TODO: set K_max by RLOF limit
-
-    P = np.logspace(1, 7, N_per_axis) << u.day
-    K = np.linspace(0.5, K_max.to(u.km/u.s).value, N_per_axis) << u.km/u.s
-
-    cos_i = np.linspace(0, 1, N_simulation)
-    i = np.arccos(cos_i) << u.rad
-
-    q = np.linspace(0.1, 1, N_simulation)
-    e = 0
-
-    scalar = ((1 - e**2)**(3/2))/(2 * np.pi * constants.G * (1 + q) * np.sin(i)**3)
-
-    v = P * K**3
-    M_1 = np.array([(v * s).to(u.solMass).value for s in scalar])
-
-    raise a
-
-
 
 
 
@@ -229,10 +207,9 @@ def simulate_detection_efficiency(P, M_1, M_2, f1, f2, i, t, distances, **kwargs
         kwds = dict()
         kwds.update(kwargs)
 
-        #for j in tqdm(range(N)):
-        for j, (P_, M_1_, M_2_, f1_, f2_, i_) in tqdm(enumerate(zip(*(P, M_1, M_2, f1, f2, i))), desc="Pooling"):
-            #args = (t, P[j], M_1[j], M_2[j], fiducial_distance)
-            #kwds.update(f1=f1[j], f2=f2[j], i=i[j])
+        for j, (P_, M_1_, M_2_, f1_, f2_, i_) in tqdm(enumerate(zip(*(P, M_1, M_2, f1, f2, i))), 
+                                                      desc="Pooling", total=P.size):
+
             args = (t, P_, M_1_, M_2_, fiducial_distance)
             kwds.update(f1=f1_, f2=f2_, i=i_)
 
@@ -241,7 +218,7 @@ def simulate_detection_efficiency(P, M_1, M_2, f1, f2, i, t, distances, **kwargs
 
 
         for each in tqdm(results, desc="Collecting"):
-            j, k, ruwe, aen = each.get(timeout=1)
+            j, k, ruwe, aen = each.get(timeout=5)
             fiducial_ruwe[j, k] = ruwe
 
         D = distances.size
@@ -258,9 +235,12 @@ def simulate_detection_efficiency(P, M_1, M_2, f1, f2, i, t, distances, **kwargs
 
 
 
-N_per_axis = 50
-N_simulation = 100
-args, _ = Pq_grid_main_sequence_binary_population(N_per_axis, N_simulation)
+N_per_axis = 30
+N_simulation = 30
+
+print(f"Anticipated number of combinations: {(N_per_axis * N_simulation)**2:.1e}")
+
+args, _ = grid_main_sequence_binary_population(N_per_axis, N_simulation)
 
 P, M_1, M_2, f_1, f_2, i = args
 
@@ -399,9 +379,23 @@ def plot_detection_efficiency_contours(x, y, detection_efficiency, x_log=False, 
     return fig
 
 
+i = np.pi/2 # just as example 
+e = 0
+a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
+K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2)))
+
 P_label = r"$P$ $/$ $\textrm{days}^{-1}$"
 K_label = r"$K$ $/$ $\textrm{km\,s}^{-1}$"
 q_label = r"$q$"
+
+# show me in P, K space where we have things
+fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, ruwe.value.flatten(),
+                statistic="min", x_log=True,
+                x_label=P_label, y_label=K_label)
+
+
+raise a
+
 
 Pq_plot_kwds = dict(x_log=True, y_log=False,
                     x_lim=None, y_lim=(0, 1),
@@ -416,11 +410,6 @@ ax = fig.axes[0]
 ax.plot(ax.get_xlim(), [q.value[0], q.value[0]],
         "-", c="#666666", linestyle=":", lw=1, zorder=-1)
 
-
-i = np.pi/2 # just as example
-e = 0
-a = ((P/(2 * np.pi))**2 * constants.G * (M_1 + M_2))**(1/3)
-K = ((2 * np.pi * a * np.sin(i))/(P * np.sqrt(1 - e**2)))
 
 
 fig = plot_mesh(P.to(u.day).value, K.to(u.km/u.s).value, ruwe.value.flatten(),
