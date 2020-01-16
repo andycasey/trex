@@ -191,7 +191,7 @@ obs_start, obs_end, median_astrometric_n_good_obs_al = get_gaia_observing_span(g
 t = obs_start + np.random.uniform(0, 1, median_astrometric_n_good_obs_al) * (obs_end - obs_start)
 distances = np.linspace(1, 5000, 10000) * u.pc
 
-def simulate_detection_efficiency(P, M_1, M_2, f1, f2, i, t, distances, **kwargs):
+def simulate_ruwe_at_fiducial_distance(P, M_1, M_2, f1, f2, i, t, **kwargs):
 
     processes = kwargs.pop("processes", 50)
     with mp.Pool(processes=processes) as pool:
@@ -221,6 +221,7 @@ def simulate_detection_efficiency(P, M_1, M_2, f1, f2, i, t, distances, **kwargs
             j, k, ruwe, aen = each.get(timeout=5)
             fiducial_ruwe[j, k] = ruwe
 
+        """
         D = distances.size
 
         # Just store a detection completeness at each distance.
@@ -228,10 +229,10 @@ def simulate_detection_efficiency(P, M_1, M_2, f1, f2, i, t, distances, **kwargs
         for j, distance in tqdm(enumerate(distances), total=D):
             ruwe = fiducial_ruwe * (fiducial_distance / distance)
             detection_efficiency[j] = np.sum(ruwe >= ruwe_binarity_threshold)/ruwe.size
-    
+        """
 
 
-    return (detection_efficiency, fiducial_ruwe, fiducial_distance)
+    return (fiducial_ruwe, fiducial_distance)
 
 
 
@@ -247,8 +248,8 @@ if not os.path.exists(path):
 
     P, M_1, M_2, f_1, f_2, i = args
 
-    detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
-    content = (args, detection_efficiency, fiducial_ruwe, fiducial_distance)
+    fiducial_ruwe, fiducial_distance = simulate_ruwe_at_fiducial_distance(*args, t)
+    content = (args, fiducial_ruwe, fiducial_distance)
 
     with open(path, "wb") as fp:
         pickle.dump(content, fp)
@@ -257,7 +258,7 @@ else:
     with open(path, "rb") as fp:
         content = pickle.load(fp)
 
-    args, detection_efficiency, fiducial_ruwe, fiducial_distance = content
+    args, fiducial_ruwe, fiducial_distance = content
     P, M_1, M_2, f_1, f_2, i = args
 
 
@@ -478,12 +479,13 @@ for desc, population_function in population_functions.items():
 
     args, ylabel = population_function(N)
 
-    detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
+    fiducial_ruwe, fiducial_distance = simulate_ruwe_at_fiducial_distance(*args, t)
 
+    raise a
     # optimistic modelling and EDR3
     edr3_obs_start, edr3_obs_end, edr3_median_astrometric_n_good_obs_al = get_gaia_observing_span(3)
     edr3_t = edr3_obs_start + np.random.uniform(0, 1, edr3_median_astrometric_n_good_obs_al) * (edr3_obs_end - edr3_obs_start)
-    edr3_detection_efficiency, *_ = simulate_detection_efficiency(*args, edr3_t, distances,
+    edr3_detection_efficiency, *_ = simulate_ruwe_at_fiducial_distance(*args, edr3_t, distances,
                                                                   intrinsic_ra_error=0.06,
                                                                   intrinsic_dec_error=0.06)
 
@@ -505,7 +507,7 @@ for desc, population_function in population_functions.items():
     args, ylabel = draw_main_sequence_binary_population(1_000_000)
     P, M_1, M_2, f_1, f_2, i = args
 
-    detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_detection_efficiency(*args, t, distances)
+    detection_efficiency, fiducial_ruwe, fiducial_distance = simulate_ruwe_at_fiducial_distance(*args, t, distances)
 
     e = 0
 
