@@ -1,4 +1,4 @@
-\documentclass{aastex62}
+\documentclass[manuscript]{aastex62}
 
 \usepackage{bm}
 \usepackage{amsmath}
@@ -30,6 +30,7 @@
 \newcommand{\vectheta}{\vec{\theta}}
 \newcommand{\likelihood}{\mathcal{L}}
 \newcommand{\given}{|}
+\newcommand{\transpose}{^\textrm{T}}
 
 
 % projects
@@ -39,12 +40,12 @@
 \newcommand{\ESA}{\acronym{ESA}}
 \newcommand{\Gaia}{\project{Gaia}}
 \newcommand{\gaia}{\project{gaia}}
-\newcommand{\Grp}{$\textrm{G}_\textrm{RP}$}
-\newcommand{\Gbp}{$\textrm{G}_\textrm{BP}$}
-\newcommand{\G}{$\textrm{G}$}
-\newcommand{\MG}{$M_\textrm{G}$}
-\newcommand{\MGRP}{$M_{\textrm{G}_{\textrm{RP}}}$}
-\newcommand{\MGBP}{$M_{\textrm{G}_{\textrm{BP}}}$}
+\newcommand{\Grp}{\textrm{G}_\textrm{RP}}
+\newcommand{\Gbp}{\textrm{G}_\textrm{BP}}
+\newcommand{\G}{\textrm{G}}
+\newcommand{\MG}{M_\textrm{G}}
+\newcommand{\MGRP}{M_{\textrm{G}_{\textrm{RP}}}}
+\newcommand{\MGBP}{M_{\textrm{G}_{\textrm{BP}}}}
 
 \newcommand{\foreign}[1]{\emph{#1}}
 \newcommand\ie{\foreign{i.e.}}
@@ -116,7 +117,8 @@
 
 \begin{abstract}
 The frequency and properties of unresolved stellar companions underpins much of astrophysics.
-These systems are challenging to detect and characterise. 
+These systems are challenging to detect and characterise.
+% as their sensitivity depends on both the properties of the orbit and the system orbital and source properties.
 Here we self-calibrate the noise in astrometric and radial velocity measurements in the second 
 \Gaia\ data release, and we use excess noise to detect and partially characterise binary systems.
 %Given a \Gaia\ radial velocity error, we detect binaries with orbital periods $P \lesssim 1,300\,{\rm days}$ and semi-amplitudes $K_1 \gtrsim 1\,{\rm km\,s}^{-1}$. 
@@ -161,10 +163,11 @@ Stellar multiplicity can be inferred from \Gaia\ data using radial velocity meas
 and/or photometry. These data are sensitive to stellar multiplicity in different ways. In the next 
 sub-section we describe our methods for detecting stellar multiplicity from astrometric noise, 
 before describing how our methods vary for radial velocities.
-We do not directly make use of photometry (\ie, absolute magnitudes or photometric variability) to 
-identify stellar multiples, despite the clear population of main-sequence binaries present in the 
-\Gaia\ data \citep{Lindegren:2018}. In later sections we show that these binary systems are 
-identifiable by their jitter\footnote{Throughout this work when we use the term \emph{jitter} we are
+Here we do not directly use photometric variability to identify stellar multiples.
+%despite the clear population of main-sequence binaries present in the 
+%\Gaia\ data \citep{Lindegren:2018}. 
+In later sections we show that these binary systems are identifiable by their 
+jitter\footnote{Throughout this work when we use the term \emph{jitter} we are
 	referring to the intrinsic uncertainty in measuring either the astrometric position or the radial 
 	velocity.} in astrometry and/or radial velocity, and omitting photometric information avoids 
 confusion with single stars that are photometrically variable.
@@ -185,7 +188,7 @@ There are many sources of astrometric jitter for a given source, but here we wil
 principal source of excess jitter is the presence of a stellar-mass companion. 
 We take the reduced unit weight error (RUWE) as the measure of astrometric jitter
 \begin{eqnarray}
-	\AstJitter = \sqrt{\frac{\chi^2_{al}}{N_{obs,al} - 5}} \label{eq:astrometric_unit_weight_error}
+	\AstJitter = \textrm{RUWE} = \sqrt{\frac{\chi^2_{al}}{N_{obs,al} - 5}} \label{eq:astrometric_unit_weight_error}
 	\label{eq:define-ast-jitter}
 \end{eqnarray}
 \noindent{}where $\chi^2_{al}$ is the astrometric $\chi^2$ value in the along-scan direction (column
@@ -199,10 +202,10 @@ that large values are less consistent with a single star model, but this must be
 context with sources of similar colours, apparent G-band magnitudes, and to a lesser extent, 
 absolute G-band magnitudes.
 
-For these reasons we will assume that for a sample of sources of similar
-	\Gbp\ - \Grp\ colour,
-	apparent G-band magnitude \G, and
-	absolute G-band magnitude \MG,
+For these reasons we will assume that for a sample of sources of \emph{similar}
+	$\Gbp\ - \Grp$ colour,
+	apparent G-band magnitude $\G$, and
+	absolute G-band magnitude $\MG$,
 the distribution of astrometric jitter is a mixture of two components:
 \begin{enumerate}
 \item \emph{single-star systems},\\where the jitter represents the minimum uncertainty
@@ -227,7 +230,7 @@ For these reasons we adopt a non-parametric model for the astrometric jitter for
 
 %Here we describe that model.
 Consider a \Gaia\ source of interest. For this source we randomly draw at least 128 comparison 
-sources (up to 1,024) that have a similar \Gbp\ - \Grp\ colour (within $0.05\,\textrm{mag}$), 
+sources (up to 1,024) that have a similar $\Gbp\ - \Grp$ colour (within $0.05\,\textrm{mag}$), 
 and apparent and absolute G-band magnitudes that are both within $0.5\,\textrm{mag}$ of the source 
 of interest.
 Although we do not know yet which sources are single stars, we can assume that any single stars 
@@ -289,9 +292,13 @@ For these reasons we adopted the following priors,
 $\AstJitter < \mu_s$. The likelihood is
 \begin{eqnarray}
 %	\mathcal{L}\left(\vec\phi\given\AstJitter\right) &\propto& \prod_{n=1}^{N} \left[\frac{w}{\sqrt{2\pi\sigma_s}}\exp\left(-\frac{[\AstJitter - \mu_s]^2}{2\sigma_s^2}\right) + \frac{1-w}{\AstJitter\sigma_m\sqrt{2\pi}}\exp\left(-\frac{(\ln\AstJitter - \mu_m)^2}{2\sigma_m^2}\right)\right] \\
-	\mathcal{L}\left(\vec\phi\given\AstJitter\right) &\propto& \prod_{n=1}^{N} \left[\frac{w}{\sqrt{2\pi\sigma_s}}\exp\left(-\frac{[\AstJitter - \mu_s]^2}{2\sigma_s^2}\right) + \left(\frac{1}{1 + \exp{\left[-\beta{}\left(\AstJitter-\mu_s\right)\right]}}\right)\frac{1-w}{\AstJitter\sigma_m\sqrt{2\pi}}\exp\left(-\frac{(\ln\AstJitter - \mu_m)^2}{2\sigma_m^2}\right)\right]
+	\mathcal{L}\left(\vec\phi\given\AstJitter\right) &\propto& \prod_{n=1}^{N} \left[\frac{w}{\sqrt{2\pi\sigma_s}}\exp\left(-\frac{[\AstJitter - \mu_s]^2}{2\sigma_s^2}\right) + \mathcal{S}\left(\AstJitter\right)\frac{1-w}{\AstJitter\sigma_m\sqrt{2\pi}}\exp\left(-\frac{(\ln\AstJitter - \mu_m)^2}{2\sigma_m^2}\right)\right]
 \end{eqnarray}
-\noindent{}where the strength of the sigmoid
+\noindent{}where the sigmoid $\mathcal{S}\left(\AstJitter\right)$ is
+\begin{eqnarray}
+	\mathcal{S}\left(\AstJitter\right) = \left(\frac{1}{1 + \exp{\left[-\beta{}\left(\AstJitter-\mu_s\right)\right]}}\right)
+\end{eqnarray}
+\noindent{}and the sigmoid strength
 \begin{eqnarray}
 	\beta = \frac{1}{\sigma_s}\log{\left(\sqrt{2\pi\sigma_s}\exp{2} - 1\right)}
 \end{eqnarray}
@@ -310,7 +317,7 @@ We optimized the model parameters $\vec\phi$ by minimizing the negative log like
 \texttt{L-BFGS-B} optimization algorithm \citep{Broyden:1970,Fletcher:1970,Goldfarb:1970,Shanno:1970,Nocedal:2006}. 
 We repeated this procedure for different \Gaia\ sources of interest, where each time this procedure
 provides us with a noisy estimate of the expected astrometric jitter for a single star $\mu_s$ and 
-the variance in that jitter $\sigma_s^2$. 
+the variance in the jitter for a single star $\sigma_s^2$. 
 We could repeat this procedure for every \Gaia\ source, but each source of interest would be treated
 independently. 
 That is to say that there is no enforced constraint that the expected jitter (or its variance) 
@@ -318,109 +325,70 @@ should vary smoothly with respect to the source parameters.
 There's also no specific constraint that two very similar sources should have exactly the same 
 estimated single star jitter because those two sources could have selected different comparison 
 sources and therefore fit slightly different jitter distributions. 
-For these we repeat the procedure described above for 1,000 randomly selected sources of interest,
+For these reasons we repeat the procedure described above for 1,000 randomly selected sources of interest,
 and fit a Gaussian process to our noisy estimates of $\vec\phi$ as a function of the source
 properties.
 
 
 A Gaussian process is specified by the use of kernels that describe the covariance structure between
-data points instead of directly modelling the data \citep[see][for a thorough introduction]{Rasmussen:2005}. 
+data points instead of directly modelling the data \citep[for a thorough introduction see][]{Rasmussen:2005}. 
 This can provide a very flexible generative model for the data with only few hyperparameters. 
-Here we use an exponential-squared kernel 
-\todo{Wer need to define terms between here and section 2.2.}
-\begin{comment}
-=======
-therefore fit slightly different distributions of jitter. For these we repeat the 
-procedure described above for 1,000 randomly selected sources of interest, 
-and use a Gaussian Process to smoothly model our noisy estimates of $\vec\phi$.
-
-
-Gaussian Processes are a class of models that use a function $\mu_{\vec{\theta}}(\bm{x})$ to describe the mean of the data,
-and a kernel function $k_{\vec{\alpha}}(\bm{x}_{n},\bm{x}_{m})$ (or functions) that parameterise the covariance between those data \citep{Rasmussen:2005}.
-This can provide a very flexible model for the data using only a few hyperparameters:
-$\vec\theta$ which defines the mean function, and $\vec\alpha$ that describes how the kernel varies with respect to the
-parameters. The constructed covariance matrix is defined as $\vec{K_\alpha}$. 
-Unfortunately the cost of computing the inverse and determinant of $\vec{K_\alpha}$ scales na\"ively scales with the cube of the number of data points.
-This normally limits the use of Gaussian Processes to small data sets. Optimizing the hyperparameters
-remains possible for larger data sets (e.g., $N \sim 10^3$), but posterior sampling quickly
-becomes computationally intractable.
-
-A separate Gaussian Process model is required for each of our parameters in $\vec\phi$:
-$w$, $\mu_s$, $\sigma_s$, and $\sigma_m$. Standard nomenclature would be to describe
-this as the `data' $\bm{y}$, and $\bm{x}$ is a 1,000 $\times$ 3 matrix of \Gbp\ - \Grp\
-colour, apparent G magnitude, and absolute G magnitude. As a general example we
-will use $\bm{y}$ to describe the noisy estimates of a parameter in $\vec\phi$
-(e.g., $\bm{y} \equiv \vec{\phi}_i$). 
-
-
-
-
-Omitting constant terms, the Gaussian Process marginalized likelihood 
-function $\ln \textrm{p}(\bm{y}|\bm{x},\vec{\theta},\vec{\alpha})$ is 
->>>>>>> 27ebcb35bc702a6169660820d8e3348bd619faed
-\end{comment}
+We construct four Gaussian processes to model the astrometric jitter across the source parameter
+space: 
+	one for the mixing weight $w$, 
+	one for the mean of the single star (normal) component $\mu_s$,
+	another for standard deviation of the single star component $\sigma_s$, and 
+	one for the standard deviation of the log-normal component $\sigma_m$.
+Let us introduce the nomenclature for the first Gaussian process.
+Under this first model our data are noisy estimates of the mixing weight $w$ for $N =$ 1,000 sources
+such that the dataset $\vec{y}$ is
 \begin{eqnarray}
-	\ln\mathcal{L}\left(\vec\theta, \vec\alpha\right) = -\frac{1}{2}\left[\bm{y}-\vec{\mu}_{\vec\theta}\right]^\mathrm{T}\vec{K_\alpha}^{-1}\left[\bm{y}-\vec{\mu_\theta}\right] - \frac{1}{2}\ln\det\vec{K_\alpha}
+	\vec{y} = \left({w}_1 \quad \cdots \quad {w}_N\right)\transpose
 \end{eqnarray}
-\noindent{}with an unknown white noise component that is added to the diagonal of the
-covariance matrix, and an unknown mean value.
-\todo{Eqn introducing $\vec{X}$ and $\vec{y}$ for GPs}.
-%The $\vec{X}$ matrix here has shape $10000 \times 3$: the \Gbp\ - \Grp\ colour, apparent G band magnitude, and absolute G-band magnitude for the 
-%10,000 randomly selected points of interest. 
-We allow for different scale lengths $\vec{r}$ in
-each dimension (i.e. \Gbp\ - \Grp\ colour, apparent G magnitude, absolute G magnitude), and we construct four Gaussian process models: one for each parameter in $\vec\theta$.
-We optimized the hyperparameters of each Gaussian process model using \texttt{george} 
-\citep{Foreman-Mackey:2015, Ambikasaran:2015}, conditioned on the noisy estimates of
-the 1,000 randomly selected \Gaia\ sources of interest. With these models we made predictions for the expected jitter terms 
-$\vec{\hat{\theta}}$ and their variances for all 16,676,756 \Gaia\ sources used in this work.
-
-
-
-With these predictions of astrometric jitter we report the log likelihood of the
-single star model and the multiple star model
-\begin{comment}
-\noindent{}where we adopt a single value as the mean function $\mu_{\vec{\theta}}(\bm{x}) \equiv \theta$
-and $\vec\alpha$ includes the scale lengths $\vec{r}$ for an exponential-squared kernel
+\noindent{}at coordinates that are defined by the colour and magnitudes for each source 
+$\vec{x} = \left(\Gbp - \Grp, \G, \MG\right)$\begin{eqnarray}
+	\textrm{X} = \left(\vec{x}_1 \quad \cdots \quad \vec{x}_N\right)\transpose \quad .
+\end{eqnarray}
+Our model consists of a mean function $\mu_{\vec\theta}\left(\vec{x}\right)$ and a kernel function
+$k_{\vec\alpha}\left(\vec{x}_{n},\vec{x}_{m}\right)$ that is parameterized by $\vec{\alpha}$.
+Specifically, we use an exponential-squared kernel with an unknown level of white noise that is
+added to the diagonal of the covariance matrix.
+The log-likelihood function is
 \begin{eqnarray}
-	k(\vec{r}^2) = \exp\left(\frac{\vec{r}^2}{2}\right)
+	\ln\mathcal{L}\left(\vec\theta, \vec\alpha\right) = \ln{p\left(\vec{y}\given\textrm{X},\vec{\theta},\vec{\alpha}\right)} = -\frac{1}{2}\left[\bm{y}-\vec{\mu}_{\vec\theta}\right]^\mathrm{T}\vec{K_\alpha}^{-1}\left[\bm{y}-\vec{\mu_\theta}\right] - \frac{1}{2}\ln\det\vec{K_\alpha} - \frac{N}{2}\ln{\left(2\pi\right)} \quad .
 \end{eqnarray}
-\noindent{}and an unknown white noise component that is added to the diagonal of the
-covariance matrix. In total there are five hyperparameters for each Gaussian Process
-model.
 
+We minimized the negative log-likelihood using the \texttt{George} library 
+\citep{Foreman-Mackey:2015, Ambikasaran:2015} and a non-linear optimization algorithm
+\citep{Broyden:1970,Fletcher:1970,Goldfarb:1970,Shanno:1970,Nocedal:2006}.
+We constructed four Gaussian processes to model the astrometric jitter: one for each parameter in 
+$\vec\phi$ (except $\mu_m$, as it is defined by Equation~\ref{eq:mu_m}). In each Gaussian process the dataset $\vec{y}$ contained 
+our noisy estimates of the parameter of interest, and we stored the optimized parameters 
+$\left(\vec\theta,\vec\alpha\right)$ from each.
+With these Gaussian processes we made point estimates of the quantities $w$, $\mu_s$, $\sigma_s$, and
+$\sigma_m$ for all 16,676,756 sources in our sample. 
+We then calculate the probability that a source is consistent with being a single star, given it's 
+astrometric jitter and it's source properties.
 
-We optimized the hyperparameters of each Gaussian Process model using \texttt{george} 
-\citep{Foreman-Mackey:2015, Ambikasaran:2015}, conditioned on the noisy estimates 
-from 1,000 randomly selected sources. Using our point estimate of the hyperparameters
-in each Gaussian Process, we then make predictions for the expected jitter terms
-$\vec{\phi}$ and their variances for all 16,676,756 \Gaia\ sources used in this work.
+The Gaussian process models provide point estimates and associated variances of $\vec\phi$, but 
+those variances are conditioned on our single estimates of the
+hyperparameters $\left(\vec\theta, \vec\alpha\right)$ for each Gaussian process.
+In other words we did not sample the hyperparameters of each Gaussian process.
+However, we do propagate the uncertainties in $\vec\phi$ by Monte-Carlo
+sampling for each source, and requiring that the samples drawn are clipped within the bounds of
+our priors.
+This provides us with samples of the probability that a source is a single star, and we report
+percentiles of this distribution for all sources.
+In Section~\ref{sec:discussion} we emphasize that these percentiles are not those of a posterior
+probability distribution because they do not propagate our uncertainties in the Gaussian process
+hyperparameters.
 
-
-With these predictions of astrometric jitter we report a single estimate of the
-log likelihood of the single star model and the multiple star model:
->>>>>>> 27ebcb35bc702a6169660820d8e3348bd619faed
-\end{comment}
-\begin{eqnarray}
-\ln\likelihood_{s,a}\left(\AstJitter\given\hat{\vec{\theta}}\right) &=& \log{\hat{w}} - \frac{\left(\AstJitter - \hat{\mu_s}\right)^2}{2\hat{\sigma_s}^2} - \frac{1}{2}\log{\hat{\sigma_s}}  \\
-\ln\likelihood_{m,a}\left(\AstJitter\given\hat{\vec{\theta}}\right) &=& \log{(1-\hat{w})} 
-- \frac{\left(\ln\AstJitter - \hat{\mu_m}\right)^2}{2\hat{\sigma_m}^2} - \log{\AstJitter\hat{\sigma_m}} \nonumber \\
-\end{eqnarray}
-\noindent{}as well as 
-%the likelihood ratio $\lambda_{a}$ of being a stellar multiple
-%relative to being a single star
-%\begin{eqnarray}
-%	\lambda_{a} = \frac{\likelihood_{m,a}}{\likelihood_{s,a}}
-%\end{eqnarray}
-%\noindent{}and 
-a point estimate of the probability of being a single star given the astrometric jitter $\tau_\textrm{ast}$:
-\begin{eqnarray}
-	\tau_\textrm{ast} = \frac{p_{s,a}(\AstJitter\given\hat{\vec{\theta}})}{p_{s,a}(\AstJitter\given\hat{\vec\theta}) + p_{m,a}(\AstJitter\given\hat{\vec\theta})}
-\end{eqnarray}
-With these point estimates one can select sources that are likely to be stellar
-multiples given their astrometric jitter by requiring $\tau_{s,a} \approx 0$. The heuristic for considering what is a likely astrometric binary
-depends on the situation, but we make recommendations in Section~\ref{sec:discussion}.
-
-\todo{Evidence by propagating estimated variance in $\hat\theta$? (We would still only be using point estimate of Gaussian Process hyperparameters, so is it even worthwhile or is it intentionally deceptive?)}
+One can select sources that are likely to be single stars or stellar multiples given these
+reported percentiles. There are some caveats as binaries become harder to detect at further 
+distances, and some combinations of orbital parameters make binaries undetectable in astrometry at
+all distances (\eg, an unresolved stellar companion with equal mass and luminosity).
+We detail these detection efficiencies in Section~\ref{sec:detection_efficiency}, and provide 
+recommended heuristics for what is a likely astrometric binary in Section~\ref{sec:discussion}.
 
 
 
@@ -447,7 +415,7 @@ Radial velocity measurements are not available for individual epochs in the seco
 release \citep{Lindegren:2018,Cropper:2018}. 
 However, the median radial velocity and estimated error is available for 7,224,631 sources \citep{Cropper:2018}.
 The reported radial velocity error ($\GaiaRVE$; column name \texttt{radial\_velocity\_error}) is a 
-function of the number of transits $N$ (i.e., the number of observations; given by the column 
+function of the number of transits $N$ (\ie, the number of observations; given by the column 
 \texttt{rv\_nb\_transits}) and the standard deviation of those measurements. 
 This allows us to calculate the standard deviation of the single-transit radial velocities, which 
 we will refer to here as the \emph{radial velocity jitter} $\RVJitter$,
@@ -469,11 +437,18 @@ main-sequence stars of the same temperature and colour, and narrower absorption 
 precise radial velocity measurement.
 For these reasons, in order to evaluate whether a source is more likely to be a single star or a 
 stellar multiple, we must consider the jitter in context with other sources that have a similar 
-properties (\Gbp\ - \Grp\ colour, apparent \Grp\ magnitude, and absolute \Grp\ magnitude).
-Note that we are using \Grp\ magnitudes for radial velocity measurements because the central
-wavelength of the \Grp\ band is closer to the wavelength range of the radial velocity spectrometer.
+properties.
 
-\todo{We used the model as per Section 2.1, with $\RVJitter$ instead of $\AstJitter$.}
+
+We used the same procedure described in Section~\ref{sec:methods/astrometry}, with a number of minor
+changes. We used the $\Gbp\ - \Grp$ colour as before, but used the apparent $\Grp$ magnitude and 
+absolute $\Grp$ magnitude to evaluate similarity between sources (instead of the $\G$-band)
+because the central wavelength of the $\Grp$ band is closer to the wavelength range of the radial
+velocity spectrometer. We adopted the two-component mixture model to describe radial velocity
+jitter (Equations~\ref{sec:X} to \ref{sec:X}), the same priors (Equations~\ref{eq:X} to \ref{eq:X}),
+and the same Gaussian process kernel functions.
+With these Gaussian processes we calculated the probability that a source is consistent with being
+a single star, given it's radial velocity jitter and it's source properties.
 
 
 For a single star, or a star without a significant mass companion, the source radial velocity jitter
@@ -481,27 +456,15 @@ represents the minimum uncertainty with which \Gaia\ can measure radial velocity
 colour, apparent magnitude, and absolute magnitude.
 For a binary star system, $\RVJitter$ is a combination of the intrinsic uncertainty and 
 the radial velocity semi-amplitude of the system.
+Throughout this work we will assume all binary systems are zero eccentricity.
 Specifically, in a zero eccentricity system the radial velocity semi-amplitude is proportional to 
 the standard deviation of (noiseless) radial velocity estimates over at least one orbital period
-(Appendix~\ref{app:prove-K}). 
-Throughout this work we will assume all binary systems are zero eccentricity.
-We discuss the implications of this assumption in Section~\ref{sec:discussion}.
+(Appendix~\ref{app:prove-K}).
+For sources that are likely to be binary systems (given their radial velocity jitter) we provide an
+estimate of the system radial velocity semi-amplitude $K$, and an associated error $\sigma_K$.
 
 
-Some sources in the second \Gaia\ data release do not have reported radial velocities even though 
-they are apparently bright enough and within a suitable \Gbp\ - \Grp\ colour range. 
-The two most likely explanations are that either the \Gaia\ team identified the source to be a
-double-lined spectroscopic binary, or the radial velocity error $\sigma_{\textrm{V}_\textrm{R}}^\textrm{MTA}$ 
-exceeded 20\,km\,s$^{-1}$ (irrespective of the number of transits), and so the source radial 
-velocity was removed \citep[see][]{Cropper:2018}. 
-If the number of transits is large then we can still identify binary systems with radial velocity
-semi-amplitudes exceeding 20\,km\,s$^{-1}$, but we cannot use the \emph{lack} of a reported radial 
-velocity as a reliable indicator of stellar multiplicity. 
-This is illustrated in Appendix~\ref{app:missing-rvs}, where we show that an absence of radial
-velocity is a combination of sky completeness, the initial \Gaia\ source catalog, as well as 
-stellar multiplicity.
-For these reasons, if a \Gaia\ source does not have a radial velocity error then we only use the 
-astrometric jitter to inform us about stellar multiplicity.
+%We discuss the implications of this assumption in Section~\ref{sec:discussion}.
 
 
 
@@ -562,15 +525,15 @@ astrometric jitter to inform us about stellar multiplicity.
 			%		where $\chi_{al}^2$ and $N_{al}$ is the astrometric goodness-of-fit and number 
 			%		of observations in the along-scan direction, respectively (columns 
 			%			\texttt{astrometric\_chi2\_al} and \texttt{astrometric\_n\_obs\_al}), 
-				(b) photometric \Gbp\ - \Grp\ excess factor, 				
+				(b) photometric $\Gbp\ - \Grp$ excess factor, 				
 	 				and 
-				(c) photometric \Grp\ variability (see Eq. \ref{eq:photometric_variability})
+				(c) photometric $\Grp$ variability (see Eq. \ref{eq:photometric_variability})
 			of sources that lack radial velocities but their properties suggest they should have
 			a radial velocity measurement (red; candidate SB2 systems), and an equal-size control sample of sources
-			with similar \Gbp\ - \Grp\ colours, apparent magnitudes, absolute magnitudes,
+			with similar $\Gbp\ - \Grp$ colours, apparent magnitudes, absolute magnitudes,
 			which \emph{do} have radial velocity measurements (grey). It is clear that the
 			candidate SB2 systems have systematically higher astrometric unit weight error
-			than the control sample, and a larger variance in photometric \Gbp\ - \Grp\ excess
+			than the control sample, and a larger variance in photometric $\Gbp\ - \Grp$ excess
 			factor and photometric variability, both consistent with a secondary source.}
     \label{fig:sb2_histograms}
 \end{figure}
@@ -578,7 +541,29 @@ astrometric jitter to inform us about stellar multiplicity.
 
 \subsection{Joint information} \label{sec:methods/joint-information}
 
-\todo{We estimated $p(\textrm{single}|\textrm{data})$ for all sources.}
+We assume the astrometric jitter and radial velocity jitter to be independent pieces of information.
+For the X sources with astrometric jitter and radial velocity jitter, we provide joint probability
+estimates that the source is consistent with being a single star, given both their astrometric
+jitter and radial velocity jitter. 
+\todo{Discuss interesting cases (\eg, equal-mass and equal-luminosity main-sequence/main-sequence binaries
+where astrometry is uninformative but radial velocities are strongly informative), or leave it there?}
+
+
+Some sources in the second \Gaia\ data release do not have reported radial velocities even though 
+they are apparently bright enough and within a suitable $\Gbp\ - \Grp$ colour range. 
+The two most likely explanations are that either the \Gaia\ team identified the source to be a
+double-lined spectroscopic binary, or the radial velocity error $\sigma_{\textrm{V}_\textrm{R}}^\textrm{MTA}$ 
+exceeded 20\,km\,s$^{-1}$ (irrespective of the number of transits), and so the source radial 
+velocity was removed \citep[see][]{Cropper:2018}. 
+If the number of transits is large then we can still identify binary systems with radial velocity
+semi-amplitudes exceeding 20\,km\,s$^{-1}$, but we cannot use the \emph{lack} of a reported radial 
+velocity as a reliable indicator of stellar multiplicity. 
+This is illustrated in Appendix~\ref{app:missing-rvs}, where we show that an absence of radial
+velocity is a combination of sky completeness, the initial \Gaia\ source catalog, as well as 
+stellar multiplicity.
+For these reasons, if a \Gaia\ source does not have a radial velocity error then we only use the 
+astrometric jitter to inform us about stellar multiplicity.
+
 
 
 \subsection{Detection efficiency} \label{sec:methods/simulations}
@@ -595,22 +580,25 @@ We simulated $\sim{}10^9$ binary systems and calculated the fraction of systems 
 detectable through excess astrometric or radial velocity jitter.
 We started with a grid of orbital periods $P$, equidistant in log space from $1$ to $10^7$\,days,
 and a grid of equi-spaced mass ratios $q$ from 0.1 to 1.
-At each $(P,q)$ pair we simulated 10,000 binary systems where the mass of the primary is drawn from 
-a \citep{Salpeter} initial mass function, and the cosine of their inclination angles are uniformly
+At each $P$ and $q$ we simulated 10,000 binary systems where the mass of the primary is drawn from 
+an initial mass function \citep{Salpeter}, and the cosine of their inclination angles are uniformly
 drawn between zero and one.
 All systems were assumed to have zero eccentricity.
 
 The number of astrometric observations for each system was randomly drawn from the second \Gaia\ 
 data release catalog.
 We repeated this procedure for the number of radial velocity transits, but required the number of
-transits to be $>1$.
+transits to be $>$1.
 Our simulations should be considered as sky-averaged predictions because we did not account for the
 sky position of individual targets, or the \Gaia\ scanning law.
-Instead, the times of each observation were assumed to be uniformly random during the observing
-period\footnote{Taken as from 2014-07-25T10:30 to 2016-05-23T11:35 as per https://www.cosmos.esa.int/web/gaia/dr2}.
+Instead, the times of each observation were assumed to be uniformly random between
+UTC 2014-07-25T10:30 and UTC 2016-05-23T11:35.
 This assumption has no significant effect for binary systems with orbital periods less than twice 
-the observing span.
-% For longer periods, $\phi$ is not known.
+the observing span. 
+For longer orbital periods we would under-estimate the radial velocity semi-amplitude.
+However, as we will show, there are relatively few systems with orbital periods twice the observing 
+span \emph{and} radial velocity semi-amplitudes large enough to be currently detected.
+%For longer periods, $\phi$ is not known.
 
 We assume a constant sky position uncertainty of 0.3\,mas on a per observation basis.
 This is approximately correct for sources with $G < 15$ \citep[see Figure 9 of][]{Lindegren:2018}.
@@ -624,7 +612,7 @@ This is approximately correct for sources with $G < 15$ \citep[see Figure 9 of][
 %more likely to be a binary star than a single star.
 Let us consider the case of main-sequence/main-sequence binaries, where we simulated a population
 of binaries at varying distances: 10\,pc, 100\,pc, and 1000\,pc.
-For simplicity we assume that all sources at 1000\,pc remain bright enough (\ie, \Grp\ $< 12$) that
+For simplicity we assume that all sources at 1000\,pc remain bright enough (\ie, $\Grp < 12$) that
 a radial velocity measurement is available. 
 Although this is not true for many main-sequence/main-sequence binary systems, here we are not
 trying to model the underlying population of sources in \Gaia.
@@ -642,8 +630,8 @@ The purple contours remain the same at increasing distance because we assume sou
 remain bright enough to measure radial velocities.
 The lower limit on the purple region represents our ability to distinguish single stars from binary
 stars, and the truncation near $K \approx 30\,\textrm{km\,s}^{-1}$ is because sources with
-\texttt{radial\_velocity\_error} exceeding 20\,km\,s$^{-1}$ are removed from the sample.
-Note that with enough radial velocity observations can still detect some binary systems with 
+\texttt{radial\_velocity\_error} exceeding 20\,km\,s$^{-1}$ are removed from the sample (Section~\ref{sec:joint-information}).
+Note that with enough radial velocity observations we can still detect some binary systems with 
 $K > 20\,\textrm{km\,s}^{-1}$ thanks to the $2N/\pi$ pre-factor in Equation~\ref{eq:define-rv-jitter}.
 This upper bound increases for orbital periods longer than twice the observing span ($\sim{}10^3$\,days)
 because a smaller fraction of the orbital period is sampled, but without knowing the orbital period,
@@ -652,21 +640,32 @@ for these systems we would systematically under-estimate the radial velocity sem
 
 At 10\,pc main-sequence/main-sequence binaries can be detected through astrometric jitter for nearly
 any combination of orbital period $P$ and mass ratio $q$.
-At 100\,pc the sensitivity response in orbital parameters becomes more apparent.
+At 100\,pc the shape of the sensitivity response in orbital parameters becomes more apparent.
 The peak sensitivity for detecting binarity occurs at twice the observing period because for these
 systems only a quarter of the orbit has been sampled, producing the largest root-mean-squared
 deviation from what \Gaia\ assumes (in this data release) is a single point source.
-However, even at peak sensitivity we do not detect equal mass main-sequence/main-sequence binary 
-systems ($q = 1$) because the photocenter does not change during the orbit.
-Most main-sequence/main-sequence binaries are not detectable in astrometric jitter at 1,000\,pc:
-only $\sim$50\% of those with favourable mass ratios and orbital periods twice the
+However, even at peak sensitivity we do not detect equal mass (and equal luminosity) 
+main-sequence/main-sequence binary systems ($q = 1$) because the photocenter does not change during the orbit.
+Most main-sequence/main-sequence binaries are not detectable in astrometric jitter at 1,000\,pc.
+Only $\sim$50\% of those with favourable mass ratios and orbital periods twice the
 observing span will be detected.
 Inclination angles also contribute to detectability, with face-on systems producing a $\sqrt{2}$
 higher astrometric jitter than edge-on systems, all else being equal.
 
+\todo{Run simulations for main-sequence/red giant branch systems and discuss.}
+
+\todo{Run simulations for red giant branch/red giant branch binary systems and discuss.}
+
+\todo{Calculate an inverse detection efficiency for each $\Grp\ - \Gbp$, $\G$ and $\MG$?}
+
+\todo{Calculate a binary fraction correction factor for the sample?}
+
+
+
+
 \begin{figure}
 	\centering
-	\includegraphics[width=\textwidth]{detection_efficiency_ms_ms_binaries.pdf}
+	%\includegraphics[width=\textwidth]{detection_efficiency_ms_ms_binaries.pdf}
     \caption{}
     \label{fig:detection-efficiency-ms-ms-binaries}
 \end{figure}
@@ -693,7 +692,7 @@ radial velocity variations) with semi-amplitudes down to $K \approx \todo{X}\,\t
 periods as long as about 44\,months ($\approx3.5$\,yr) -- twice the observing span
 of the second \Gaia\ data release. Both of these bounds are expected: at low $K$ \Gaia\
 lacks the radial velocity precision to distinguish single stars from stellar multiples,
-and only about half the orbital period is required to measure the peak-to-peak radial velocity variations.
+and only half the orbital period is required to accurately estimate the peak-to-peak radial velocity variations.
 If the orbital period is longer, we can still reliably identify some systems as stellar
 multiples if the radial velocity semi-amplitude is large enough, but in these instances we will
 systematically underestimate the true radial velocity semi-amplitude because \Gaia\ has not
@@ -704,7 +703,7 @@ If this assumption is not met, our radial velocity semi-amplitude estimates will
 by about the same fraction of the observing span relative to half the true orbital period.
 
 We accurately estimate the radial velocity semi-amplitude for well-studied SB1-type systems
-with periods $P < 44\,\textrm{months}$ (Figure \ref{fig:rv-sb9-comparison}. \todo{Our estimated
+with periods $P < 44\,\textrm{months}$ (Figure \ref{fig:rv-sb9-comparison}). \todo{Our estimated
 errors on $K$ also appear reasonably consistent given more precise literature estimates.}
 The estimates of $K$ and their associated errors could be improved by considering the exact
 moments when \Gaia\ observed each source -- even if the actual measurement at each epoch is
@@ -775,6 +774,7 @@ systems.}
 	\item {Binarity with respect to metallicity}
     \item {Binarity in clusters vs the field?}
     \item {Binarity among extremely metal-poor stars?}
+    \item {Superlative systems (\eg, stellar mass black-hole companions)}
 \end{itemize}
 
 
@@ -793,15 +793,26 @@ It is a pleasure to thank
 	Lorenzo Spina (Monash University),
 		and
 	Sergey Koposov (Carnegie Mellon University).
-\todo{ARC DE19....}
+
+This research was developed in part at 
+	the NYC Gaia DR2 Workshop at the Center for Computational Astrophysics of the Flatiron Institute 
+		in 2018 April, and at
+	the 2019 Santa Barbara Gaia Sprint, hosted by the Kavli Institute for Theoretical Physics at the 
+		University of California, Santa Barbara
+
+A.~R.~C. is supported in part by the Australian Research Council through a Discovery Early Career 
+Researcher Award (DE190100656). 
+Parts of this research were supported by the Australian Research Council Centre of Excellence for 
+All Sky Astrophysics in 3 Dimensions (ASTRO 3D), through project number CE170100013.
+This research was supported in part at KITP by the Heising-Simons Foundation and the National 
+Science Foundation under Grant No. NSF PHY-1748958.
+
 This work has made use of data from the European Space Agency (ESA) mission {\it
 Gaia} (\url{https://www.cosmos.esa.int/gaia}), processed by the {\it Gaia} Data
 Processing and Analysis Consortium (DPAC,
 \url{https://www.cosmos.esa.int/web/gaia/dpac/consortium}). Funding for the DPAC
 has been provided by national institutions, in particular the institutions
-participating in the {\it Gaia} Multilateral Agreement.  This research was
-developed in part at the NYC Gaia DR2 Workshop at the Center for Computational
-Astrophysics of the Flatiron Institute in 2018 April.
+participating in the {\it Gaia} Multilateral Agreement.  
 
 This work has made use of CosmoHub. CosmoHub has been developed by the Port 
 d'Informaci\'o Cient\'ifica (PIC), maintained through a collaboration of the 
@@ -809,8 +820,6 @@ Institut de F\'isica d'Altes Energies (IFAE) and the Centro de Investigaciones
 Energ\'eticas, Medioambientales y Tecnol\'ogicas (CIEMAT), and was partially 
 funded by the ``Plan Estatal de Investigaci\'on Cient�fica y T\'ecnica y de 
 Innovaci\'on'' program of the Spanish government.
-
-
 
 \software{
 	\package{Astropy} \citep{astropy:2013,astropy:2018},
@@ -826,7 +835,9 @@ Innovaci\'on'' program of the Spanish government.
 
 
 \appendix
-\section{Reproducibility}
+
+\section{Reproducibility} \label{app:reproducibility}
+
 This project was developed in a \texttt{git} repository hosted at \giturl. 
 The repository includes notebooks that demonstrate the progression our work,  
 \LaTeX\ to compile this manuscript, and scripts to reproduce the analysis described
@@ -834,32 +845,82 @@ in this manuscript.
 We executed the following
 Astronomical Data Query Language (\texttt{ADQL})\footnote{http://www.ivoa.net/documents/latest/ADQL.html} 
 query through CosmoHub \citep{Carretero:2017} to retrieve the \Gaia\ data:
-%\begin{minted}[style=friendly]{postgresql}
-% SELECT *
-%   FROM gaiadr2.gaia_source
-%  WHERE phot_g_mean_mag <= 14
-%\end{minted}
+\begin{comment}
+\begin{minted}[style=friendly]{postgresql}
+ SELECT *
+   FROM gaiadr2.gaia_source
+  WHERE phot_g_mean_mag <= 14
+\end{minted}
+\end{comment}
 
 The results presented here can be reproduced in full (including data
 retrieval, analysis, creation of figures, and manuscript compilation) using these
 commands in a modern terminal:
 % this is not python, but latex fails to evaluate \githash if I set bash environment.
-%\begin{minted}[
-%style=friendly,
-%escapeinside=||
-%]{python} 
-%git clone https://github.com/andycasey/velociraptor.git velociraptor
-%cd velociraptor
-%git checkout |\githash|
-%./reproduce
-%\end{minted}
+\begin{comment}
+\begin{minted}[
+style=friendly,
+escapeinside=||
+]{python} 
+git clone https://github.com/andycasey/velociraptor.git velociraptor
+cd velociraptor
+git checkout |\githash|
+./reproduce
+\end{minted}
+\end{comment}
 
 Reproducing these results will require at least \todo{X}\,Gb of free disk space 
 and \todo{Y}\,hours of compute time. The settings in the \texttt{model.yml} file
 can be adjusted to reduce the sample size of the data and shorten the compute 
 time at the expense of accuracy. 
 
-\section{Radial velocity completeness as a function of \Gaia\ source properties} \label{sec:appendix-missing-rvs}
+
+
+\section{Proof of {$K = \sqrt{2}\RVJitter$} for well-sampled circular orbits} \label{app:prove-K}
+
+This proof is not new. 
+It is included here as a refresher. 
+Consider a binary system on a circular orbit. 
+The radial velocity of the system at any time $t$ is given by
+\begin{eqnarray}
+	v_r(t) = \gamma + K\sin\left(\frac{2\pi}{P}t + \varphi_0\right)
+\end{eqnarray}
+\noindent{}where $\gamma$ is the systemic radial velocity, $P$ is the orbital period, $\varphi_0$ is the phase of the initial observation at $t_0$, and $K$ is the radial velocity semi-amplitude. 
+Let $\omega = \frac{2\pi}{P}$. 
+If the observed baseline $T > \frac{P}{2}$ and $t \sim \mathcal{U}\left(0,T\right)$ then we can ignore the initial phase $\varphi_0$.
+
+The root mean square for a continuous function over some time interval $T$ is
+\begin{eqnarray}
+v_\mathrm{rms}^2 &=& \frac{1}{T}\int_{0}^{T}\left[v_r(t)\right]^2 \partial{}t \\
+v_\mathrm{rms}^2 &=& \frac{1}{T}\int_{0}^{T}\left[\gamma + K\sin(\omega{}t)\right]^2\partial{}t\\
+v_\mathrm{rms}^2 &=& \frac{1}{T}\int_{0}^{T}\left[\gamma^2 + 2K\gamma\sin\left(\omega{}t\right) + K^2\sin^2\left(\omega{}t\right)\right] \partial{}t
+% By making use of the double-angle formulae
+%v_\mathrm{rms}^2 &=& \frac{1}{T}\left[\gamma^2{t}|_0^{T} + \frac{2K\gamma}{\omega}\cos{\left(\omega{}t\right)}|_0^T + \frac{K^2}{2}\int_0^T\left(1 - \cos\left(2\omega{}t\right)\right)\partial{}t\right]
+\end{eqnarray}
+
+
+After expanding terms and using the identity
+\begin{eqnarray}
+	\sin^2\left(\omega{}t\right) = \frac{1}{2}\left[1 - \cos\left(2\omega{}t\right)\right]
+\end{eqnarray}
+\noindent{}we find \todo{Fill in from notebook}
+
+
+\noindent{}giving 
+\begin{eqnarray}
+	K = \sqrt{2}\RVJitter \quad .
+\end{eqnarray}
+
+
+If we assume that each radial velocity measurement has some associated noise, and that noise is
+homoskedastic, then an unbiased estimate of the radial velocity semi-amplitude is given by
+\begin{eqnarray}
+	\todo{K = }
+\end{eqnarray}
+\noindent{}and the error on that estimate is \todo{T.~B.~C.}
+
+
+\section{Radial velocity completeness as a function of \Gaia\ source properties} \label{app:missing-rvs}
 
 Many sources in the second \Gaia\ data release do not have a reported radial 
 velocity, despite being bright enough ($G \lesssim 13$) and in a suitable 
@@ -885,48 +946,38 @@ As we have shown, even if the radial velocity were removed, the radial velocity 
 can be used to infer properties about binary systems.
 
 
-This motivated us to investigate whether a \emph{lack} radial velocity was
-indicative of stellar multiplicity. We advise against this.
+This motivated us to investigate whether a \emph{lack} radial velocity was indicative of stellar multiplicity. 
+We advise against this.
+We calculated the completeness of radial velocity measurements (e.g., the
+fraction of sources with reported radial velocities) as a function of all 
+available source properties that might affect whether the radial velocity may
+be reported or not. This included position ($\alpha$, $\delta$, $l$, $b$),
+parallax, proper motions, apparent magnitudes, $\Gbp\ - \Grp$ colour, 
+properties of the radial velocity templates, stellar parameters ($\teff$, $\radius$, $\luminosity$),
+and other properties. 
 
+We took all sources with \todo{$\Grp < 12$ and $0.YY \geq \Gbp\ - \Grp \geq 0.XX$}, where the
+fraction of sources with radial velocity measurements in this sample is relatively flat with respect
+to colour and apparent magnitude.
+However, when the density of sources is shown as a function of sky position (Figure~\ref{fig:missing-rvs-sky-location})
+it is clear that the presence (or absence) of radial velocity measurements is strongly dependent on
+sky position.
+%Some of this is attributable to a higher likelihood of source confusion in the Milky Way disk, but
+%not all
+The sky pattern observed is an function of 
+	the initial \Gaia\ source catalog list \citep{Someone},
+	the scanning law (\ie, some parts of the sky are observed less frequently), and
+	higher likelihood of source confusion in dense regions (\eg, the Milky Way disk and bulge).
+For these reasons, we conclude that the \emph{lack} of radial velocity information is not
+informative of binarity.\footnote{The astute reader might remark `Duh!', but numerous groups have
+	sought to use the lack of radial velocity information as informative of binarity
+	(or low metallicity) before they also came to this conclusion.}
 
 % This is illustrated in Appendix~\ref{app:missing-rvs}, where we show that an absence of radial
 %velocity is a combination of sky completeness, the initial \Gaia\ source
 %catalog, as well as stellar multiplicity. For these reasons, if a \Gaia\
 %source does not have a radial velocity error then we only use the astrometric
 %jitter to inform us about stellar multiplicity.
-
-We calculated the completeness of radial velocity measurements (e.g., the
-fraction of sources with reported radial velocities) as a function of all 
-available source properties that might affect whether the radial velocity may
-be reported or not. This included position ($\alpha$, $\delta$, $l$, $b$),
-parallax, proper motions, apparent magnitudes, \Gbp\ - \Grp\ colour, 
-properties of the radial velocity templates, stellar parameters ($\teff$, $\radius$, $\luminosity$),
-and other properties. 
-
-
-In Figure \ref{fig:radial_velocity_completeness} we show the completeness as 
-a function of some pertinent properties, which demonstrate that the radial 
-velocity completeness is relatively flat until a source becomes too faint 
-(low \Grp\ flux), or is either too blue or too red. We adopt conservative 
-limits for when the radial velocity completeness starts to drop with these 
-properties, and we assume that any source within the following range of 
-source parameters
-\begin{eqnarray}
-	\todo{bounds}
-    \label{eq:sb2_criteria}
-\end{eqnarray}
-\noindent{}is likely to be a double-lined spectroscopic binary (SB2) if no 
-radial velocity is reported. That is to say that we are explicitly assuming
-that if a point source meets the criteria in Equation \ref{eq:sb2_criteria} 
-and does not have a reported radial velocity measurement, then the point 
-source is an unresolved double-lined spectroscopic binary. In principle we 
-could make more realistic attempts to model the radial velocity completeness as
-a function of stellar properties rather than simply stating ``sources within
-this parameter range should have radial velocities unless they are SB2 systems'',
-but the radial velocity completeness within our specified range is reasonably
-flat.
-
-
 
 
 
@@ -948,7 +999,6 @@ flat.
 \begin{figure*}
 %	%%\includegraphics[width=1.0\textwidth]{../figures/sb2_sky_structure.pdf}
 %	%%\includegraphics[width=1.0\textwidth]{../figures/todo.png}
-
     \caption{Fraction of sources (per sky bin) without reported radial velocities
     		 for all sources with $G \lesssim 13$ (top) and sources in the ranges
 		 	 specified by Eqs \ref{eq:sb2_ranges} (bottom), where we assert that a missing
@@ -966,48 +1016,6 @@ flat.
 
 
 
-
-\section{Proof of $\RVJitter = K\sqrt{2}$ for circular orbits} \label{app:prove-K}
-
-Consider a binary system on a circular orbit. The radial velocity of the system at any time $t$ is given by
-\begin{equation}
-	v_r(t) = \gamma + K\sin\left(\frac{2\pi}{P}t + \varphi_0\right)
-\end{equation}
-\noindent{}where $\gamma$ is the systemic radial velocity, $P$ is the orbital period, $\varphi_0$ is the phase of the initial observation at $t_0$, and $K$ is the radial velocity semi-amplitude. Let $\omega = \frac{2\pi}{P}$. If the observed baseline $T > \frac{P}{2}$ and $t \sim \mathcal{U}\left(0,T\right)$ then we can ignore the initial phase $\varphi_0$ and calculate the R.M.S. of radial velocities over that baseline as 
-\begin{eqnarray}
-v_\mathrm{rms}^2 &=& \frac{1}{T}\int_{0}^{T}\left[v_r(t)\right]^2 \partial{}t \\
-v_\mathrm{rms}^2 &=& \frac{1}{T}\int_{0}^{T}\left[\gamma + K\sin(\omega{}t)\right]^2\partial{}t\\
-v_\mathrm{rms}^2 &=& \frac{1}{T}\int_{0}^{T}\left[\gamma^2 + 2K\gamma\sin\left(\omega{}t\right) + K^2\sin^2\left(\omega{}t\right)\right] \partial{}t
-% By making use of the double-angle formulae
-%v_\mathrm{rms}^2 &=& \frac{1}{T}\left[\gamma^2{t}|_0^{T} + \frac{2K\gamma}{\omega}\cos{\left(\omega{}t\right)}|_0^T + \frac{K^2}{2}\int_0^T\left(1 - \cos\left(2\omega{}t\right)\right)\partial{}t\right]
-\end{eqnarray}
-After expanding terms and using the identity
-\begin{equation}
-	\sin^2\left(\omega{}t\right) = \frac{1}{2}\left[1 - \cos\left(2\omega{}t\right)\right]
-\end{equation}
-\noindent{}we find
-\begin{eqnarray}
-v_\mathrm{rms}^2 &=& \frac{1}{T}\left[\gamma^2{t} + \frac{2K\gamma}{\omega}\cos{\left(\omega{}t\right)} + \frac{K^2t}{2} - \frac{K^2}{4\omega}\sin\left(2\omega{}t\right) \right]_0^{T}\\
-v_\mathrm{rms}^2 &=& \frac{1}{T}\left[\gamma^2T + \frac{2K\gamma}{\omega}\left(\cos\left(\omega{}T\right)-\cos\left(0\right)\right) + \frac{K^2T}{2}-\frac{K^2}{4\gamma}\left(\sin\left(2\omega{}T\right) - \sin\left(0\right)\right)\right] \\
-%v_\mathrm{rms}^2 &=& \frac{1}{T}\left[\gamma^2T+\frac{2K\gamma}{\omega}\right]
-%v_\mathrm{rms}^2 &=& \frac{1}{T}\left[\gamma^2T - \frac{2K\gamma}{\omega} + \frac{TK^2}{2} - \frac{K^2}{4\gamma}\right]
-\end{eqnarray}
-
-\todo{Check eqn set above}
-
-If we assume that each radial velocity measurement has some associated noise, and that noise is
-homoskedastic, then an unbiased estimate of the radial velocity semi-amplitude is given by
-\begin{equation}
-	K = \todo{todo}
-\end{equation}
-\noindent{}and the error on that estimate is
-\begin{equation}
-	\sigma_{K} = \todo{todo} \quad .
-\end{equation}
-
-\todo{Prove that it is an unbiased estimator}.
-
-\section{}\label{app:missing-rvs}
 
 \bibliography{trex}{}
 \bibliographystyle{aasjournal}
